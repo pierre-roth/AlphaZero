@@ -92,48 +92,70 @@ def load_model(model_path: str) -> tuple[bool, str]:
         return False, error_msg
 
 
-def init_bot():
+def init_bot_for_size(size: str = Config.DEFAULT_MODEL_SIZE):
     """
-    Initialize with the best available model.
+    Initialize with the best available model for a given size.
     
     Priority:
-    1. model_best.pt (highest ELO from arena)
-    2. Latest iteration_N.pt checkpoint
+    1. model_best_{size}.pt (highest ELO from arena for this size)
+    2. Latest iteration_N_{size}.pt checkpoint
     3. Random weights (fallback)
+    
+    Args:
+        size: Model size ('small', 'medium', 'large')
     """
     import glob
     import re
     
     checkpoint_dir = Config.CHECKPOINT_DIR
     
-    # Try model_best.pt first
-    best_path = os.path.join(checkpoint_dir, "model_best.pt")
+    # Get architecture for this size
+    if size not in Config.MODEL_SIZES:
+        print(f"Unknown size {size}, using {Config.DEFAULT_MODEL_SIZE}")
+        size = Config.DEFAULT_MODEL_SIZE
+    
+    size_config = Config.MODEL_SIZES[size]
+    num_blocks = size_config['blocks']
+    num_filters = size_config['filters']
+    
+    # Try size-specific best model first
+    best_path = os.path.join(checkpoint_dir, f"model_best_{size}.pt")
     if os.path.exists(best_path):
-        print("Loading best model (highest ELO)...")
+        print(f"Loading best {size} model (highest ELO)...")
         load_model(best_path)
         return
     
-    # Fall back to latest iteration checkpoint
-    pattern = os.path.join(checkpoint_dir, "iteration_*.pt")
+    # Fall back to latest iteration checkpoint for this size
+    pattern = os.path.join(checkpoint_dir, f"iteration_*_{size}.pt")
     files = glob.glob(pattern)
     
     if files:
         iterations = []
         for f in files:
-            match = re.search(r'iteration_(\d+)\.pt$', f)
+            match = re.search(rf'iteration_(\d+)_{size}\.pt$', f)
             if match:
                 iterations.append((int(match.group(1)), f))
         
         if iterations:
             iterations.sort(reverse=True)
             latest_path = iterations[0][1]
-            print(f"No best model found, loading latest iteration checkpoint...")
+            print(f"No best {size} model found, loading latest iteration checkpoint...")
             load_model(latest_path)
             return
     
-    # Fall back to default (random weights)
-    print("No checkpoints found, using random weights...")
-    load_model(Config.get_checkpoint_path(Config.BEST_MODEL))
+    # Fall back to random weights with correct architecture
+    print(f"No {size} checkpoints found, using random weights...")
+    global model, mcts, current_model_name, device
+    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    model = AlphaZeroNet(num_blocks=num_blocks, num_filters=num_filters).to(device)
+    current_model_name = f"random_{size}"
+    model.eval()
+    mcts = MCTS(model, num_simulations=Config.MCTS_SIMULATIONS_INFERENCE, device=str(device))
+
+
+def init_bot():
+    """Initialize with default model size."""
+    init_bot_for_size(Config.DEFAULT_MODEL_SIZE)
 
 
 def board_to_json(game: BreakthroughGame) -> dict:
@@ -173,7 +195,9 @@ def get_config():
     """Return game configuration for the frontend."""
     return jsonify({
         'board_size': Config.BOARD_SIZE,
-        'num_actions': Config.NUM_ACTIONS
+        'num_actions': Config.NUM_ACTIONS,
+        'model_sizes': list(Config.MODEL_SIZES.keys()),
+        'default_size': Config.DEFAULT_MODEL_SIZE
     })
 
 
@@ -209,13 +233,10 @@ def new_game():
     
     data = request.get_json() or {}
     player_color = data.get('color', 'white')
+    model_size = data.get('size', Config.DEFAULT_MODEL_SIZE)
     
-    # Optionally select model for this game
-    model_name = data.get('model')
-    if model_name:
-        model_path = os.path.join("checkpoints", model_name)
-        if os.path.exists(model_path):
-            load_model(model_path)
+    # Load model for the requested size
+    init_bot_for_size(model_size)
     
     current_game = BreakthroughGame()
     
@@ -223,6 +244,7 @@ def new_game():
     response['player_color'] = player_color
     response['game_over'] = False
     response['model'] = current_model_name
+    response['model_size'] = model_size
     response['legal_moves'] = get_legal_moves_json()
     
     # If player is black, bot makes first move

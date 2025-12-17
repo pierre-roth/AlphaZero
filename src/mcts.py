@@ -60,13 +60,13 @@ class MCTS:
         model,
         num_simulations: int = Config.MCTS_SIMULATIONS,
         c_puct: float = Config.C_PUCT,
-        fpu_value: float = Config.FPU_VALUE,
+        fpu_reduction: float = Config.FPU_REDUCTION,
         device: str = "cpu"
     ):
         self.model = model
         self.num_simulations = num_simulations
         self.c_puct = c_puct
-        self.fpu_value = fpu_value
+        self.fpu_reduction = fpu_reduction
         self.device = device
     
     # =========================================================================
@@ -287,10 +287,14 @@ class MCTS:
         # Use max(1, ...) to avoid sqrt(0) which would ignore policy priors on first visit
         sqrt_parent = math.sqrt(max(1, node.visit_count))
         
+        # Compute parent Q for FPU (from current player's perspective)
+        parent_q = node.value() if node.visit_count > 0 else 0.0
+        
         for action, child in node.children.items():
-            # Use FPU for unvisited nodes
+            # Use FPU for unvisited nodes: parent_Q - fpu_reduction
+            # This prevents "despair exploration" in losing positions
             if child.visit_count == 0:
-                q = self.fpu_value
+                q = parent_q - self.fpu_reduction
             else:
                 # Q from child's perspective (opponent), so negate
                 q = -child.value()

@@ -56,13 +56,17 @@ async function startGame(color) {
     selectedSquare = null;
     moveCount = 0;
 
-    setStatus('Starting new game...');
+    // Get selected model size
+    const sizeSelect = document.getElementById('modelSize');
+    const modelSize = sizeSelect ? sizeSelect.value : 'medium';
+
+    setStatus(`Loading ${modelSize} model...`);
 
     try {
         const response = await fetch('/api/new', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ color })
+            body: JSON.stringify({ color, size: modelSize })
         });
 
         const data = await response.json();

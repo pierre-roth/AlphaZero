@@ -62,7 +62,7 @@ class TestMCTS:
             model=model,
             num_simulations=10,
             c_puct=1.5,
-            fpu_value=0.0,
+            fpu_reduction=0.25,
             device="cpu"
         )
     

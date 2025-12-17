@@ -105,6 +105,7 @@ class ParallelTrainer:
         device: Torch device
         num_parallel_games: Number of games to run in parallel
         num_simulations: MCTS simulations per move
+        model_size: Size name for checkpoint naming ('small', 'medium', 'large')
     """
     
     def __init__(
@@ -112,11 +113,13 @@ class ParallelTrainer:
         model: AlphaZeroNet,
         device: str = "cpu",
         num_parallel_games: int = Config.PARALLEL_GAMES,
-        num_simulations: int = Config.MCTS_SIMULATIONS
+        num_simulations: int = Config.MCTS_SIMULATIONS,
+        model_size: str = Config.DEFAULT_MODEL_SIZE
     ):
         self.model = model
         self.device = device
         self.num_parallel_games = num_parallel_games
+        self.model_size = model_size
         self.optimizer = optim.Adam(
             model.parameters(),
             lr=Config.LEARNING_RATE,
@@ -284,8 +287,9 @@ class ParallelTrainer:
         
         The checkpoint contains only model state, optimizer, scheduler, and iteration.
         Training data is saved separately via append_training_data().
+        Filename includes model size: iteration_N_size.pt
         """
-        filename = f"iteration_{iteration}.pt"
+        filename = f"iteration_{iteration}_{self.model_size}.pt"
         path = os.path.join(self.checkpoint_dir, filename)
         
         torch.save({
@@ -293,6 +297,7 @@ class ParallelTrainer:
             'optimizer': self.optimizer.state_dict(),
             'scheduler': self.scheduler.state_dict(),
             'iteration': iteration,
+            'model_size': self.model_size,
             'config': {
                 'num_blocks': self.model.num_blocks,
                 'num_filters': self.model.num_filters,
@@ -307,7 +312,7 @@ class ParallelTrainer:
         Returns:
             True if loaded successfully, False otherwise.
         """
-        filename = f"iteration_{iteration}.pt"
+        filename = f"iteration_{iteration}_{self.model_size}.pt"
         path = os.path.join(self.checkpoint_dir, filename)
         
         if not os.path.exists(path):
@@ -324,7 +329,7 @@ class ParallelTrainer:
     
     def get_latest_iteration(self) -> int:
         """
-        Find the highest iteration number from existing checkpoints.
+        Find the highest iteration number from existing checkpoints for this model size.
         
         Returns:
             The latest iteration number, or 0 if no checkpoints exist.
@@ -332,7 +337,8 @@ class ParallelTrainer:
         import glob
         import re
         
-        pattern = os.path.join(self.checkpoint_dir, "iteration_*.pt")
+        # Only look for checkpoints matching this model size
+        pattern = os.path.join(self.checkpoint_dir, f"iteration_*_{self.model_size}.pt")
         files = glob.glob(pattern)
         
         if not files:
@@ -340,7 +346,7 @@ class ParallelTrainer:
         
         iterations = []
         for f in files:
-            match = re.search(r'iteration_(\d+)\.pt$', f)
+            match = re.search(rf'iteration_(\d+)_{self.model_size}\.pt$', f)
             if match:
                 iterations.append(int(match.group(1)))
         

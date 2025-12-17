@@ -42,7 +42,8 @@ class ArenaState:
         
         self.ratings: Dict[str, float] = {}
         self.matches: List[dict] = []
-        self.best_model: Optional[str] = None
+        # Track best model per size
+        self.best_models: Dict[str, str] = {}  # size -> model_name
         
         self.load()
     
@@ -53,8 +54,15 @@ class ArenaState:
                 data = json.load(f)
                 self.ratings = data.get('ratings', {})
                 self.matches = data.get('matches', [])
-                self.best_model = data.get('best_model', None)
-            print(f"Loaded arena state: {len(self.ratings)} models rated, best={self.best_model}")
+                self.best_models = data.get('best_models', {})
+                # Migrate from old format
+                if 'best_model' in data and not self.best_models:
+                    old_best = data['best_model']
+                    if old_best:
+                        size = self._get_model_size(old_best)
+                        if size:
+                            self.best_models[size] = old_best
+            print(f"Loaded arena state: {len(self.ratings)} models rated, best per size: {self.best_models}")
         else:
             print("No existing arena state found, starting fresh")
     
@@ -63,11 +71,18 @@ class ArenaState:
         data = {
             'ratings': self.ratings,
             'matches': self.matches,
-            'best_model': self.best_model,
+            'best_models': self.best_models,
             'last_updated': datetime.now().isoformat()
         }
         with open(self.state_file, 'w') as f:
             json.dump(data, f, indent=2)
+    
+    @staticmethod
+    def _get_model_size(model_name: str) -> Optional[str]:
+        """Extract model size from checkpoint name (e.g., 'iteration_5_medium.pt' -> 'medium')."""
+        import re
+        match = re.search(r'_(small|medium|large)\.pt$', model_name)
+        return match.group(1) if match else None
     
     def get_rating(self, model_name: str) -> float:
         """Get ELO rating for a model (creates if new)."""
@@ -113,18 +128,24 @@ class ArenaState:
             'timestamp': datetime.now().isoformat()
         })
         
-        # Update best model
-        best_rating = 0
-        for name, rating in self.ratings.items():
-            if rating > best_rating:
-                best_rating = rating
-                self.best_model = name
+        # Update best model per size
+        size = self._get_model_size(model_a)
+        if size:
+            # Find best model for this size
+            best_rating = 0
+            best_for_size = None
+            for name, rating in self.ratings.items():
+                if self._get_model_size(name) == size and rating > best_rating:
+                    best_rating = rating
+                    best_for_size = name
+            if best_for_size:
+                self.best_models[size] = best_for_size
         
         self.save()
     
     def get_unevaluated_models(self) -> List[str]:
         """Find iteration checkpoints that haven't been evaluated yet."""
-        pattern = os.path.join(self.checkpoint_dir, "iteration_*.pt")
+        pattern = os.path.join(self.checkpoint_dir, "iteration_*_*.pt")
         all_models = [os.path.basename(f) for f in glob.glob(pattern)]
         
         evaluated = set()
@@ -134,9 +155,16 @@ class ArenaState:
         
         return [m for m in all_models if m not in evaluated]
     
-    def get_leaderboard(self) -> List[Tuple[str, float]]:
-        """Get models sorted by rating."""
-        return sorted(self.ratings.items(), key=lambda x: x[1], reverse=True)
+    def get_best_for_size(self, size: str) -> Optional[str]:
+        """Get the best model for a specific size."""
+        return self.best_models.get(size)
+    
+    def get_leaderboard(self, size: Optional[str] = None) -> List[Tuple[str, float]]:
+        """Get models sorted by rating, optionally filtered by size."""
+        items = self.ratings.items()
+        if size:
+            items = [(n, r) for n, r in items if self._get_model_size(n) == size]
+        return sorted(items, key=lambda x: x[1], reverse=True)
 
 
 class Arena:
@@ -233,27 +261,36 @@ class Arena:
         return wins_a, wins_b
     
     def evaluate_model(self, model_name: str):
-        """Evaluate a new model against the current best (or baseline)."""
+        """Evaluate a new model against the current best of the same size (or baseline)."""
         model_path = os.path.join(self.state.checkpoint_dir, model_name)
         
-        if self.state.best_model:
-            opponent_name = self.state.best_model
-            opponent_path = os.path.join(self.state.checkpoint_dir, opponent_name)
-        else:
-            # No best model yet, use the new model as baseline
-            self.state.ratings[model_name] = INITIAL_ELO
-            self.state.best_model = model_name
-            self.state.save()
-            print(f"First model {model_name} set as baseline (ELO: {INITIAL_ELO})")
-            
-            # Copy as best model
-            best_path = os.path.join(self.state.checkpoint_dir, "model_best.pt")
-            import shutil
-            shutil.copy(model_path, best_path)
-            print(f"Saved as model_best.pt")
+        # Extract model size
+        size = ArenaState._get_model_size(model_name)
+        if not size:
+            print(f"Could not determine size for {model_name}, skipping")
             return
         
-        print(f"\nEvaluating {model_name} vs {opponent_name}...")
+        # Get best model for this size
+        best_for_size = self.state.get_best_for_size(size)
+        
+        if best_for_size:
+            opponent_name = best_for_size
+            opponent_path = os.path.join(self.state.checkpoint_dir, opponent_name)
+        else:
+            # No best model yet for this size, use the new model as baseline
+            self.state.ratings[model_name] = INITIAL_ELO
+            self.state.best_models[size] = model_name
+            self.state.save()
+            print(f"First {size} model {model_name} set as baseline (ELO: {INITIAL_ELO})")
+            
+            # Copy as best model for this size
+            best_path = os.path.join(self.state.checkpoint_dir, f"model_best_{size}.pt")
+            import shutil
+            shutil.copy(model_path, best_path)
+            print(f"Saved as model_best_{size}.pt")
+            return
+        
+        print(f"\nEvaluating {model_name} vs {opponent_name} ({size})...")
         wins_new, wins_old = self.play_match(model_path, opponent_path)
         
         print(f"Result: {model_name} {wins_new}-{wins_old} {opponent_name}")
@@ -261,17 +298,17 @@ class Arena:
         # Record match
         self.state.record_match(model_name, opponent_name, wins_new, wins_old)
         
-        # Check if new model is now best
-        if self.state.best_model == model_name:
-            best_path = os.path.join(self.state.checkpoint_dir, "model_best.pt")
+        # Check if new model is now best for its size
+        if self.state.best_models.get(size) == model_name:
+            best_path = os.path.join(self.state.checkpoint_dir, f"model_best_{size}.pt")
             import shutil
             shutil.copy(model_path, best_path)
-            print(f"New best model! ELO: {self.state.ratings[model_name]:.0f}")
+            print(f"New best {size} model! ELO: {self.state.ratings[model_name]:.0f}")
         
-        # Print leaderboard
-        print("\nLeaderboard:")
-        for rank, (name, rating) in enumerate(self.state.get_leaderboard()[:10], 1):
-            marker = " *" if name == self.state.best_model else ""
+        # Print leaderboard for this size
+        print(f"\nLeaderboard ({size}):")
+        for rank, (name, rating) in enumerate(self.state.get_leaderboard(size)[:10], 1):
+            marker = " *" if name == self.state.best_models.get(size) else ""
             print(f"  {rank}. {name}: {rating:.0f}{marker}")
 
 
