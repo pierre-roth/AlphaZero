@@ -36,11 +36,12 @@ class Config:
     # ==========================================================================
     # MCTS Parameters
     # ==========================================================================
-    MCTS_SIMULATIONS = 400      # Simulations per search (training) - reduced for 8x8 board
-    MCTS_SIMULATIONS_INFERENCE = 800  # Simulations for web inference (stronger play)
+    MCTS_SIMULATIONS = 400      # Simulations per search
+    MCTS_SIMULATIONS_INFERENCE = 400  # Simulations for web inference 
     C_PUCT = 1.5                # Exploration constant
     # First Play Urgency: reduction from parent Q-value for unvisited nodes.
     # FPU = parent_Q - FPU_REDUCTION. Prevents "despair exploration" in losing positions.
+    # Currently the FPU is disabled and replaced with q = 0 for early game.
     FPU_REDUCTION = 0.0
     DIRICHLET_ALPHA = 0.4        # Dirichlet noise alpha (higher = more exploration for small boards)
     DIRICHLET_EPSILON = 0.25    # Dirichlet noise weight
