@@ -294,7 +294,8 @@ class MCTS:
             # Use FPU for unvisited nodes: parent_Q - fpu_reduction
             # This prevents "despair exploration" in losing positions
             if child.visit_count == 0:
-                q = parent_q - self.fpu_reduction
+                # q = parent_q - self.fpu_reduction
+                q = 0
             else:
                 # Q from child's perspective (opponent), so negate
                 q = -child.value()

@@ -41,7 +41,7 @@ class Config:
     C_PUCT = 1.5                # Exploration constant
     # First Play Urgency: reduction from parent Q-value for unvisited nodes.
     # FPU = parent_Q - FPU_REDUCTION. Prevents "despair exploration" in losing positions.
-    FPU_REDUCTION = 0.25
+    FPU_REDUCTION = 0.0
     DIRICHLET_ALPHA = 0.4        # Dirichlet noise alpha (higher = more exploration for small boards)
     DIRICHLET_EPSILON = 0.25    # Dirichlet noise weight
     TEMPERATURE_THRESHOLD = 15  # Moves before switching to deterministic
