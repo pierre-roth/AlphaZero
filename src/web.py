@@ -93,7 +93,46 @@ def load_model(model_path: str) -> tuple[bool, str]:
 
 
 def init_bot():
-    """Initialize with default model."""
+    """
+    Initialize with the best available model.
+    
+    Priority:
+    1. model_best.pt (highest ELO from arena)
+    2. Latest iteration_N.pt checkpoint
+    3. Random weights (fallback)
+    """
+    import glob
+    import re
+    
+    checkpoint_dir = Config.CHECKPOINT_DIR
+    
+    # Try model_best.pt first
+    best_path = os.path.join(checkpoint_dir, "model_best.pt")
+    if os.path.exists(best_path):
+        print("Loading best model (highest ELO)...")
+        load_model(best_path)
+        return
+    
+    # Fall back to latest iteration checkpoint
+    pattern = os.path.join(checkpoint_dir, "iteration_*.pt")
+    files = glob.glob(pattern)
+    
+    if files:
+        iterations = []
+        for f in files:
+            match = re.search(r'iteration_(\d+)\.pt$', f)
+            if match:
+                iterations.append((int(match.group(1)), f))
+        
+        if iterations:
+            iterations.sort(reverse=True)
+            latest_path = iterations[0][1]
+            print(f"No best model found, loading latest iteration checkpoint...")
+            load_model(latest_path)
+            return
+    
+    # Fall back to default (random weights)
+    print("No checkpoints found, using random weights...")
     load_model(Config.get_checkpoint_path())
 
 

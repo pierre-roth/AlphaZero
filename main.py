@@ -80,6 +80,10 @@ def train():
         trainer.save_iteration_checkpoint(iteration)
 
 
+def arena():
+    """Run the arena for model evaluation."""
+    from src.arena import run_arena
+    run_arena()
 
 
 if __name__ == "__main__":
@@ -91,7 +95,9 @@ if __name__ == "__main__":
             from src.web import app
             print("Starting web server at http://localhost:5051")
             app.run(host="0.0.0.0", port=5051, debug=False)
+        elif cmd == "arena":
+            arena()
         else:
-            print("Usage: python main.py [train|web]")
+            print("Usage: python main.py [train|web|arena]")
     else:
-        print("Usage: python main.py [train|web]")
+        print("Usage: python main.py [train|web|arena]")

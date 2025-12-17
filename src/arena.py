@@ -1,0 +1,321 @@
+"""
+Arena System for Model Evaluation.
+
+This module implements ELO-based rating for comparing model checkpoints.
+It runs independently of training and evaluates models as they are generated.
+
+Key features:
+- Standard ELO rating updates (K=32)
+- Persistent state in arena_state.json
+- Automatic detection of new checkpoints
+- Best model tracking (model_best.pt)
+"""
+
+import os
+import json
+import glob
+import time
+import torch
+import numpy as np
+from typing import Dict, List, Optional, Tuple
+from datetime import datetime
+from tqdm import tqdm
+
+from src.game import BreakthroughGame, WHITE, BLACK
+from src.model import AlphaZeroNet
+from src.mcts import MCTS
+from src.config import Config
+
+
+# ELO Constants
+INITIAL_ELO = 1000
+K_FACTOR = 32
+GAMES_PER_MATCH = 20  # Games to play per model comparison
+
+
+class ArenaState:
+    """Persistent state for the arena."""
+    
+    def __init__(self, checkpoint_dir: str = Config.CHECKPOINT_DIR):
+        self.checkpoint_dir = checkpoint_dir
+        self.state_file = os.path.join(checkpoint_dir, "arena_state.json")
+        
+        self.ratings: Dict[str, float] = {}
+        self.matches: List[dict] = []
+        self.best_model: Optional[str] = None
+        
+        self.load()
+    
+    def load(self):
+        """Load state from disk."""
+        if os.path.exists(self.state_file):
+            with open(self.state_file, 'r') as f:
+                data = json.load(f)
+                self.ratings = data.get('ratings', {})
+                self.matches = data.get('matches', [])
+                self.best_model = data.get('best_model', None)
+            print(f"Loaded arena state: {len(self.ratings)} models rated, best={self.best_model}")
+        else:
+            print("No existing arena state found, starting fresh")
+    
+    def save(self):
+        """Save state to disk."""
+        data = {
+            'ratings': self.ratings,
+            'matches': self.matches,
+            'best_model': self.best_model,
+            'last_updated': datetime.now().isoformat()
+        }
+        with open(self.state_file, 'w') as f:
+            json.dump(data, f, indent=2)
+    
+    def get_rating(self, model_name: str) -> float:
+        """Get ELO rating for a model (creates if new)."""
+        if model_name not in self.ratings:
+            self.ratings[model_name] = INITIAL_ELO
+        return self.ratings[model_name]
+    
+    def update_ratings(self, model_a: str, model_b: str, score_a: float):
+        """
+        Update ELO ratings after a match.
+        
+        Args:
+            model_a: First model name
+            model_b: Second model name  
+            score_a: Score for model_a (1.0 = win, 0.5 = draw, 0.0 = loss)
+        """
+        rating_a = self.get_rating(model_a)
+        rating_b = self.get_rating(model_b)
+        
+        # Expected scores
+        expected_a = 1 / (1 + 10 ** ((rating_b - rating_a) / 400))
+        expected_b = 1 - expected_a
+        
+        # Update ratings
+        self.ratings[model_a] = rating_a + K_FACTOR * (score_a - expected_a)
+        self.ratings[model_b] = rating_b + K_FACTOR * ((1 - score_a) - expected_b)
+    
+    def record_match(self, model_a: str, model_b: str, wins_a: int, wins_b: int, draws: int):
+        """Record a match result."""
+        total = wins_a + wins_b + draws
+        if total == 0:
+            return
+        
+        score_a = (wins_a + 0.5 * draws) / total
+        self.update_ratings(model_a, model_b, score_a)
+        
+        self.matches.append({
+            'model_a': model_a,
+            'model_b': model_b,
+            'wins_a': wins_a,
+            'wins_b': wins_b,
+            'draws': draws,
+            'score_a': score_a,
+            'timestamp': datetime.now().isoformat()
+        })
+        
+        # Update best model
+        best_rating = 0
+        for name, rating in self.ratings.items():
+            if rating > best_rating:
+                best_rating = rating
+                self.best_model = name
+        
+        self.save()
+    
+    def get_unevaluated_models(self) -> List[str]:
+        """Find iteration checkpoints that haven't been evaluated yet."""
+        pattern = os.path.join(self.checkpoint_dir, "iteration_*.pt")
+        all_models = [os.path.basename(f) for f in glob.glob(pattern)]
+        
+        evaluated = set()
+        for match in self.matches:
+            evaluated.add(match['model_a'])
+            evaluated.add(match['model_b'])
+        
+        return [m for m in all_models if m not in evaluated]
+    
+    def get_leaderboard(self) -> List[Tuple[str, float]]:
+        """Get models sorted by rating."""
+        return sorted(self.ratings.items(), key=lambda x: x[1], reverse=True)
+
+
+class Arena:
+    """Runs matches between models."""
+    
+    def __init__(self, device: str = "cpu"):
+        self.device = device
+        self.state = ArenaState()
+    
+    def load_model(self, model_path: str) -> Tuple[AlphaZeroNet, MCTS]:
+        """Load a model and create MCTS for it."""
+        checkpoint = torch.load(model_path, map_location=self.device, weights_only=False)
+        
+        config = checkpoint.get('config', {})
+        num_blocks = config.get('num_blocks', Config.RESNET_BLOCKS)
+        num_filters = config.get('num_filters', Config.RESNET_FILTERS)
+        
+        model = AlphaZeroNet(num_blocks=num_blocks, num_filters=num_filters).to(self.device)
+        model.load_state_dict(checkpoint['state_dict'])
+        model.eval()
+        
+        mcts = MCTS(model, num_simulations=Config.MCTS_SIMULATIONS_INFERENCE, device=self.device)
+        return model, mcts
+    
+    def play_game(self, mcts_white: MCTS, mcts_black: MCTS) -> int:
+        """
+        Play a single game between two MCTS instances.
+        
+        Returns:
+            1 if white wins, -1 if black wins, 0 for draw
+        """
+        game = BreakthroughGame()
+        
+        while not game.is_terminal():
+            if game.turn == WHITE:
+                mcts = mcts_white
+            else:
+                mcts = mcts_black
+            
+            # Run MCTS and pick best move
+            root = mcts.search(game, add_noise=False)
+            
+            best_action = -1
+            best_visits = -1
+            for action, child in root.children.items():
+                if child.visit_count > best_visits:
+                    best_visits = child.visit_count
+                    best_action = action
+            
+            move = game.decode_action(best_action)
+            game.step(move)
+        
+        w, l = game.get_result()
+        if w == 1.0:
+            return 1  # White wins
+        elif l == 1.0:
+            return -1  # Black wins
+        return 0  # Draw (shouldn't happen in Breakthrough)
+    
+    def play_match(self, model_a_path: str, model_b_path: str, num_games: int = GAMES_PER_MATCH) -> Tuple[int, int, int]:
+        """
+        Play a match between two models.
+        
+        Args:
+            model_a_path: Path to first model
+            model_b_path: Path to second model
+            num_games: Number of games to play (split evenly between colors)
+        
+        Returns:
+            Tuple of (wins_a, wins_b, draws)
+        """
+        model_a, mcts_a = self.load_model(model_a_path)
+        model_b, mcts_b = self.load_model(model_b_path)
+        
+        wins_a = 0
+        wins_b = 0
+        draws = 0
+        
+        games_per_side = num_games // 2
+        
+        # Model A plays as White
+        for _ in tqdm(range(games_per_side), desc=f"A as White", leave=False):
+            result = self.play_game(mcts_a, mcts_b)
+            if result == 1:
+                wins_a += 1
+            elif result == -1:
+                wins_b += 1
+            else:
+                draws += 1
+        
+        # Model A plays as Black
+        for _ in tqdm(range(games_per_side), desc=f"A as Black", leave=False):
+            result = self.play_game(mcts_b, mcts_a)
+            if result == 1:
+                wins_b += 1
+            elif result == -1:
+                wins_a += 1
+            else:
+                draws += 1
+        
+        return wins_a, wins_b, draws
+    
+    def evaluate_model(self, model_name: str):
+        """Evaluate a new model against the current best (or baseline)."""
+        model_path = os.path.join(self.state.checkpoint_dir, model_name)
+        
+        if self.state.best_model:
+            opponent_name = self.state.best_model
+            opponent_path = os.path.join(self.state.checkpoint_dir, opponent_name)
+        else:
+            # No best model yet, use the new model as baseline
+            self.state.ratings[model_name] = INITIAL_ELO
+            self.state.best_model = model_name
+            self.state.save()
+            print(f"First model {model_name} set as baseline (ELO: {INITIAL_ELO})")
+            
+            # Copy as best model
+            best_path = os.path.join(self.state.checkpoint_dir, "model_best.pt")
+            import shutil
+            shutil.copy(model_path, best_path)
+            print(f"Saved as model_best.pt")
+            return
+        
+        print(f"\nEvaluating {model_name} vs {opponent_name}...")
+        wins_new, wins_old, draws = self.play_match(model_path, opponent_path)
+        
+        print(f"Result: {model_name} {wins_new}-{wins_old}-{draws} {opponent_name}")
+        
+        # Record match
+        self.state.record_match(model_name, opponent_name, wins_new, wins_old, draws)
+        
+        # Check if new model is now best
+        if self.state.best_model == model_name:
+            best_path = os.path.join(self.state.checkpoint_dir, "model_best.pt")
+            import shutil
+            shutil.copy(model_path, best_path)
+            print(f"New best model! ELO: {self.state.ratings[model_name]:.0f}")
+        
+        # Print leaderboard
+        print("\nLeaderboard:")
+        for rank, (name, rating) in enumerate(self.state.get_leaderboard()[:10], 1):
+            marker = " *" if name == self.state.best_model else ""
+            print(f"  {rank}. {name}: {rating:.0f}{marker}")
+
+
+def run_arena():
+    """
+    Main arena loop.
+    
+    Continuously scans for new models and evaluates them.
+    Can run in parallel with training.
+    """
+    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    print(f"Arena using device: {device}")
+    
+    arena = Arena(device=str(device))
+    
+    print("Arena started. Scanning for new models...")
+    print("(Run this alongside training to evaluate models as they're generated)")
+    print("Press Ctrl+C to stop.\n")
+    
+    while True:
+        # Find unevaluated models
+        new_models = arena.state.get_unevaluated_models()
+        
+        if new_models:
+            # Sort by iteration number
+            new_models.sort(key=lambda x: int(x.replace("iteration_", "").replace(".pt", "")))
+            
+            for model_name in new_models:
+                print(f"\n{'='*50}")
+                arena.evaluate_model(model_name)
+                print(f"{'='*50}")
+        else:
+            # No new models, wait and check again
+            print(".", end="", flush=True)
+            time.sleep(30)  # Check every 30 seconds
+
+
+if __name__ == "__main__":
+    run_arena()
