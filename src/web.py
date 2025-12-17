@@ -133,7 +133,7 @@ def init_bot():
     
     # Fall back to default (random weights)
     print("No checkpoints found, using random weights...")
-    load_model(Config.get_checkpoint_path())
+    load_model(Config.get_checkpoint_path(Config.BEST_MODEL))
 
 
 def board_to_json(game: BreakthroughGame) -> dict:

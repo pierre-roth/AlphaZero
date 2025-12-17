@@ -40,10 +40,10 @@ class Config:
     # ==========================================================================
     # Training Parameters
     # ==========================================================================
-    BATCH_SIZE = 64
+    BATCH_SIZE = 128
     LEARNING_RATE = 0.001
     WEIGHT_DECAY = 1e-4
-    PARALLEL_GAMES = 32         # Games to run in parallel during self-play
+    PARALLEL_GAMES = 64         # Games to run in parallel during self-play
     BUFFER_SIZE = 100000        # Replay buffer size (saved with checkpoint)
     TRAINING_EPOCHS = 10        # Epochs per training iteration
 
@@ -51,11 +51,11 @@ class Config:
     # Paths
     # ==========================================================================
     CHECKPOINT_DIR = "checkpoints"
-    DEFAULT_CHECKPOINT = "model_latest.pt"
+    BEST_MODEL = "model_best.pt"        # Best model by arena ELO
+    DATA_FILE = "training_data.npz"     # Training examples (append-only)
+    ARENA_STATE = "arena_state.json"    # Arena ratings and match history
 
     @classmethod
-    def get_checkpoint_path(cls, filename: str = None) -> str:
+    def get_checkpoint_path(cls, filename: str) -> str:
         """Get full path to a checkpoint file."""
-        if filename is None:
-            filename = cls.DEFAULT_CHECKPOINT
         return os.path.join(cls.CHECKPOINT_DIR, filename)

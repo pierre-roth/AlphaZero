@@ -82,7 +82,7 @@ class ArenaState:
         Args:
             model_a: First model name
             model_b: Second model name  
-            score_a: Score for model_a (1.0 = win, 0.5 = draw, 0.0 = loss)
+            score_a: Score for model_a (fraction of games won, 0.0 to 1.0)
         """
         rating_a = self.get_rating(model_a)
         rating_b = self.get_rating(model_b)
@@ -95,13 +95,13 @@ class ArenaState:
         self.ratings[model_a] = rating_a + K_FACTOR * (score_a - expected_a)
         self.ratings[model_b] = rating_b + K_FACTOR * ((1 - score_a) - expected_b)
     
-    def record_match(self, model_a: str, model_b: str, wins_a: int, wins_b: int, draws: int):
+    def record_match(self, model_a: str, model_b: str, wins_a: int, wins_b: int):
         """Record a match result."""
-        total = wins_a + wins_b + draws
+        total = wins_a + wins_b
         if total == 0:
             return
         
-        score_a = (wins_a + 0.5 * draws) / total
+        score_a = wins_a / total
         self.update_ratings(model_a, model_b, score_a)
         
         self.matches.append({
@@ -109,7 +109,6 @@ class ArenaState:
             'model_b': model_b,
             'wins_a': wins_a,
             'wins_b': wins_b,
-            'draws': draws,
             'score_a': score_a,
             'timestamp': datetime.now().isoformat()
         })
@@ -167,7 +166,7 @@ class Arena:
         Play a single game between two MCTS instances.
         
         Returns:
-            1 if white wins, -1 if black wins, 0 for draw
+            1 if white wins, -1 if black wins
         """
         game = BreakthroughGame()
         
@@ -191,13 +190,11 @@ class Arena:
             game.step(move)
         
         w, l = game.get_result()
-        if w == 1.0:
-            return 1  # White wins
-        elif l == 1.0:
-            return -1  # Black wins
-        return 0  # Draw (shouldn't happen in Breakthrough)
+        # Breakthrough always has a winner - no draws possible
+        assert w == 1.0 or l == 1.0, "Breakthrough game ended without a winner"
+        return 1 if w == 1.0 else -1
     
-    def play_match(self, model_a_path: str, model_b_path: str, num_games: int = GAMES_PER_MATCH) -> Tuple[int, int, int]:
+    def play_match(self, model_a_path: str, model_b_path: str, num_games: int = GAMES_PER_MATCH) -> Tuple[int, int]:
         """
         Play a match between two models.
         
@@ -207,14 +204,13 @@ class Arena:
             num_games: Number of games to play (split evenly between colors)
         
         Returns:
-            Tuple of (wins_a, wins_b, draws)
+            Tuple of (wins_a, wins_b)
         """
         model_a, mcts_a = self.load_model(model_a_path)
         model_b, mcts_b = self.load_model(model_b_path)
         
         wins_a = 0
         wins_b = 0
-        draws = 0
         
         games_per_side = num_games // 2
         
@@ -223,22 +219,18 @@ class Arena:
             result = self.play_game(mcts_a, mcts_b)
             if result == 1:
                 wins_a += 1
-            elif result == -1:
-                wins_b += 1
             else:
-                draws += 1
+                wins_b += 1
         
         # Model A plays as Black
         for _ in tqdm(range(games_per_side), desc=f"A as Black", leave=False):
             result = self.play_game(mcts_b, mcts_a)
             if result == 1:
                 wins_b += 1
-            elif result == -1:
-                wins_a += 1
             else:
-                draws += 1
+                wins_a += 1
         
-        return wins_a, wins_b, draws
+        return wins_a, wins_b
     
     def evaluate_model(self, model_name: str):
         """Evaluate a new model against the current best (or baseline)."""
@@ -262,12 +254,12 @@ class Arena:
             return
         
         print(f"\nEvaluating {model_name} vs {opponent_name}...")
-        wins_new, wins_old, draws = self.play_match(model_path, opponent_path)
+        wins_new, wins_old = self.play_match(model_path, opponent_path)
         
-        print(f"Result: {model_name} {wins_new}-{wins_old}-{draws} {opponent_name}")
+        print(f"Result: {model_name} {wins_new}-{wins_old} {opponent_name}")
         
         # Record match
-        self.state.record_match(model_name, opponent_name, wins_new, wins_old, draws)
+        self.state.record_match(model_name, opponent_name, wins_new, wins_old)
         
         # Check if new model is now best
         if self.state.best_model == model_name:
