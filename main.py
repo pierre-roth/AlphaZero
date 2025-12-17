@@ -103,10 +103,14 @@ def train(model_size: str = Config.DEFAULT_MODEL_SIZE):
         trainer.save_iteration_checkpoint(iteration)
 
 
-def arena():
+def arena(cross_size: bool = False):
     """Run the arena for model evaluation."""
-    from src.arena import run_arena
-    run_arena()
+    if cross_size:
+        from src.arena import run_cross_size_arena
+        run_cross_size_arena()
+    else:
+        from src.arena import run_arena
+        run_arena()
 
 
 def main():
@@ -115,7 +119,9 @@ def main():
                         help='Command to run')
     parser.add_argument('--size', choices=['small', 'medium', 'large'],
                         default=Config.DEFAULT_MODEL_SIZE,
-                        help='Model size for training (default: medium)')
+                        help='Model size for training (default: large)')
+    parser.add_argument('--cross-size', action='store_true',
+                        help='Arena mode: pit best models of different sizes against each other')
     
     args = parser.parse_args()
     
@@ -126,12 +132,12 @@ def main():
         print("Starting web server at http://localhost:5051")
         app.run(host="0.0.0.0", port=5051, debug=False)
     elif args.command == 'arena':
-        arena()
+        arena(cross_size=args.cross_size)
 
 
 if __name__ == "__main__":
     if len(sys.argv) == 1:
-        print("Usage: python main.py [train|web|arena] [--size small|medium|large]")
+        print("Usage: python main.py [train|web|arena] [--size small|medium|large] [--cross-size]")
     else:
         main()
 

@@ -44,6 +44,8 @@ class ArenaState:
         self.matches: List[dict] = []
         # Track best model per size
         self.best_models: Dict[str, str] = {}  # size -> model_name
+        # Track cross-size matches (best vs best of different sizes)
+        self.cross_size_matches: List[dict] = []
         
         self.load()
     
@@ -55,13 +57,7 @@ class ArenaState:
                 self.ratings = data.get('ratings', {})
                 self.matches = data.get('matches', [])
                 self.best_models = data.get('best_models', {})
-                # Migrate from old format
-                if 'best_model' in data and not self.best_models:
-                    old_best = data['best_model']
-                    if old_best:
-                        size = self._get_model_size(old_best)
-                        if size:
-                            self.best_models[size] = old_best
+                self.cross_size_matches = data.get('cross_size_matches', [])
             print(f"Loaded arena state: {len(self.ratings)} models rated, best per size: {self.best_models}")
         else:
             print("No existing arena state found, starting fresh")
@@ -72,6 +68,7 @@ class ArenaState:
             'ratings': self.ratings,
             'matches': self.matches,
             'best_models': self.best_models,
+            'cross_size_matches': self.cross_size_matches,
             'last_updated': datetime.now().isoformat()
         }
         with open(self.state_file, 'w') as f:
@@ -165,6 +162,30 @@ class ArenaState:
         if size:
             items = [(n, r) for n, r in items if self._get_model_size(n) == size]
         return sorted(items, key=lambda x: x[1], reverse=True)
+    
+    def have_cross_size_match(self, model_a: str, model_b: str) -> bool:
+        """Check if two models have already played a cross-size match."""
+        for match in self.cross_size_matches:
+            if (match['model_a'] == model_a and match['model_b'] == model_b) or \
+               (match['model_a'] == model_b and match['model_b'] == model_a):
+                return True
+        return False
+    
+    def record_cross_size_match(self, model_a: str, model_b: str, wins_a: int, wins_b: int):
+        """Record a cross-size match result."""
+        size_a = self._get_model_size(model_a)
+        size_b = self._get_model_size(model_b)
+        
+        self.cross_size_matches.append({
+            'model_a': model_a,
+            'model_b': model_b,
+            'size_a': size_a,
+            'size_b': size_b,
+            'wins_a': wins_a,
+            'wins_b': wins_b,
+            'timestamp': datetime.now().isoformat()
+        })
+        self.save()
 
 
 class Arena:
@@ -344,6 +365,89 @@ def run_arena():
             # No new models, wait and check again
             print(".", end="", flush=True)
             time.sleep(30)  # Check every 30 seconds
+
+
+def run_cross_size_arena():
+    """
+    Cross-size arena: pit best models of different sizes against each other.
+    
+    Only runs matches that haven't been played yet (tracks by exact model names).
+    Results are saved to arena_state.json under 'cross_size_matches'.
+    """
+    from itertools import combinations
+    
+    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    print(f"Cross-size arena using device: {device}")
+    
+    arena = Arena(device=str(device))
+    
+    # Get all sizes that have a best model
+    available_sizes = list(arena.state.best_models.keys())
+    print(f"\nAvailable sizes with best models: {available_sizes}")
+    
+    if len(available_sizes) < 2:
+        print("Need at least 2 different model sizes to run cross-size arena.")
+        print("Train models of different sizes first.")
+        return
+    
+    # Show current best models
+    print("\nCurrent best models:")
+    for size, model_name in arena.state.best_models.items():
+        rating = arena.state.get_rating(model_name)
+        print(f"  {size}: {model_name} (ELO: {rating:.0f})")
+    
+    # Generate all pairs
+    size_pairs = list(combinations(available_sizes, 2))
+    print(f"\nChecking {len(size_pairs)} size pairings...")
+    
+    matches_played = 0
+    for size_a, size_b in size_pairs:
+        model_a = arena.state.best_models[size_a]
+        model_b = arena.state.best_models[size_b]
+        
+        # Check if this exact match has been played
+        if arena.state.have_cross_size_match(model_a, model_b):
+            print(f"\n[SKIP] {model_a} vs {model_b} (already played)")
+            continue
+        
+        print(f"\n{'='*60}")
+        print(f"CROSS-SIZE MATCH: {size_a.upper()} vs {size_b.upper()}")
+        print(f"  {model_a}")
+        print(f"  vs")
+        print(f"  {model_b}")
+        print(f"{'='*60}")
+        
+        # Load models and play
+        model_a_path = os.path.join(arena.state.checkpoint_dir, model_a)
+        model_b_path = os.path.join(arena.state.checkpoint_dir, model_b)
+        
+        wins_a, wins_b = arena.play_match(model_a_path, model_b_path)
+        
+        # Record result
+        arena.state.record_cross_size_match(model_a, model_b, wins_a, wins_b)
+        
+        # Determine winner
+        if wins_a > wins_b:
+            winner = f"{size_a.upper()} ({model_a})"
+        elif wins_b > wins_a:
+            winner = f"{size_b.upper()} ({model_b})"
+        else:
+            winner = "TIE"
+        
+        print(f"\nResult: {model_a} {wins_a}-{wins_b} {model_b}")
+        print(f"Winner: {winner}")
+        matches_played += 1
+    
+    print(f"\n{'='*60}")
+    print(f"Cross-size arena complete. Played {matches_played} new matches.")
+    
+    # Show cross-size leaderboard
+    if arena.state.cross_size_matches:
+        print("\nCross-size match history:")
+        for match in arena.state.cross_size_matches:
+            result = f"{match['wins_a']}-{match['wins_b']}"
+            print(f"  {match['size_a']} vs {match['size_b']}: {result}")
+            print(f"    {match['model_a']} vs {match['model_b']}")
 
 
 if __name__ == "__main__":

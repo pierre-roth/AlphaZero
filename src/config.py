@@ -27,8 +27,8 @@ class Config:
     
     # Available model sizes (blocks, filters)
     MODEL_SIZES = {
-        'small': {'blocks': 4, 'filters': 64},
-        'medium': {'blocks': 6, 'filters': 128},
+        'small': {'blocks': 5, 'filters': 64},
+        'medium': {'blocks': 10, 'filters': 128},
         'large': {'blocks': 20, 'filters': 128},  # Deep > Wide for reasoning
     }
     DEFAULT_MODEL_SIZE = 'large'
