@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AlphaZero Breakthrough</title>
+    <meta name="description" content="Play Breakthrough against an AlphaZero-style neural network">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>⚔️ AlphaZero Breakthrough</h1>
+            <p class="subtitle">Race your pieces to the other side!</p>
+        </header>
+
+        <div class="game-container">
+            <!-- Evaluation Bar -->
+            <div class="eval-container">
+                <div class="eval-bar">
+                    <div class="eval-fill" id="evalFill"></div>
+                </div>
+                <div class="eval-label" id="evalLabel">0.00</div>
+            </div>
+
+            <!-- Game Board -->
+            <div class="board-container">
+                <div id="board" class="game-board"></div>
+            </div>
+
+            <!-- Game Info -->
+            <div class="info-panel">
+                <div class="status" id="status">Select a side to start playing</div>
+
+                <div class="controls">
+                    <button id="newGameWhite" class="btn btn-primary">Play as White (○)</button>
+                    <button id="newGameBlack" class="btn btn-secondary">Play as Black (●)</button>
+                </div>
+
+                <div class="rules">
+                    <h3>How to Play</h3>
+                    <ul>
+                        <li>Move pieces forward or diagonally forward</li>
+                        <li>Capture opponent pieces diagonally</li>
+                        <li>First to reach the opposite side wins!</li>
+                    </ul>
+                </div>
+
+                <div class="move-history">
+                    <h3>Move History</h3>
+                    <div id="moves" class="moves-list"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+
+</html>

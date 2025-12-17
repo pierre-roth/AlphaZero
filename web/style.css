@@ -1,0 +1,334 @@
+/* AlphaZero Breakthrough - Stylesheet */
+
+:root {
+    --bg-dark: #1a1a2e;
+    --bg-card: #16213e;
+    --accent: #4a9eff;
+    --accent-hover: #6bb3ff;
+    --text-primary: #eee;
+    --text-secondary: #a0a0a0;
+    --light-square: #e8dcc8;
+    --dark-square: #8b7355;
+    --highlight: rgba(74, 158, 255, 0.5);
+    --highlight-capture: rgba(255, 100, 100, 0.5);
+    --eval-white: #ffffff;
+    --eval-black: #333333;
+    --white-piece: #ffffff;
+    --black-piece: #1a1a1a;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(135deg, var(--bg-dark) 0%, #0f0f23 100%);
+    min-height: 100vh;
+    color: var(--text-primary);
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 2rem;
+}
+
+header {
+    text-align: center;
+    margin-bottom: 2rem;
+}
+
+header h1 {
+    font-size: 2.5rem;
+    background: linear-gradient(90deg, var(--accent), #80d0ff);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.subtitle {
+    color: var(--text-secondary);
+    margin-top: 0.5rem;
+}
+
+.game-container {
+    display: flex;
+    gap: 2rem;
+    justify-content: center;
+    align-items: flex-start;
+    flex-wrap: wrap;
+}
+
+/* Evaluation Bar */
+.eval-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.eval-bar {
+    width: 30px;
+    height: 400px;
+    background: linear-gradient(to top, var(--eval-black) 50%, var(--eval-white) 50%);
+    border-radius: 4px;
+    overflow: hidden;
+    position: relative;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+
+.eval-fill {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 50%;
+    background: var(--eval-white);
+    transition: height 0.5s ease;
+}
+
+.eval-label {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+/* Game Board */
+.board-container {
+    background: var(--bg-card);
+    padding: 1rem;
+    border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.game-board {
+    display: grid;
+    grid-template-columns: repeat(8, 50px);
+    grid-template-rows: repeat(8, 50px);
+    border: 3px solid var(--accent);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.square {
+    width: 50px;
+    height: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.2s;
+    position: relative;
+}
+
+.square.light {
+    background: var(--light-square);
+}
+
+.square.dark {
+    background: var(--dark-square);
+}
+
+.square.selected {
+    background: var(--highlight) !important;
+}
+
+.square.legal-move::after {
+    content: '';
+    width: 16px;
+    height: 16px;
+    background: rgba(74, 158, 255, 0.4);
+    border-radius: 50%;
+    position: absolute;
+}
+
+.square.legal-capture {
+    box-shadow: inset 0 0 0 4px var(--highlight-capture);
+}
+
+.square:hover {
+    filter: brightness(1.1);
+}
+
+/* Pieces */
+.piece {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.4);
+    transition: transform 0.1s;
+}
+
+.piece.white-piece {
+    background: radial-gradient(circle at 30% 30%, #ffffff, #cccccc);
+    border: 2px solid #888;
+}
+
+.piece.black-piece {
+    background: radial-gradient(circle at 30% 30%, #444444, #1a1a1a);
+    border: 2px solid #000;
+}
+
+.piece:hover {
+    transform: scale(1.05);
+}
+
+/* Info Panel */
+.info-panel {
+    background: var(--bg-card);
+    padding: 1.5rem;
+    border-radius: 12px;
+    min-width: 250px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.status {
+    font-size: 1.1rem;
+    padding: 1rem;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    text-align: center;
+    margin-bottom: 1rem;
+}
+
+.controls {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.btn {
+    padding: 0.75rem 1.5rem;
+    border: none;
+    border-radius: 8px;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-weight: 600;
+}
+
+.btn-primary {
+    background: var(--accent);
+    color: white;
+}
+
+.btn-primary:hover {
+    background: var(--accent-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(74, 158, 255, 0.4);
+}
+
+.btn-secondary {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.2);
+    transform: translateY(-2px);
+}
+
+.rules {
+    margin-bottom: 1.5rem;
+}
+
+.rules h3 {
+    font-size: 1rem;
+    margin-bottom: 0.5rem;
+    color: var(--text-secondary);
+}
+
+.rules ul {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    padding-left: 1.2rem;
+}
+
+.rules li {
+    margin-bottom: 0.25rem;
+}
+
+.move-history h3 {
+    font-size: 1rem;
+    margin-bottom: 0.5rem;
+    color: var(--text-secondary);
+}
+
+.moves-list {
+    max-height: 150px;
+    overflow-y: auto;
+    font-family: 'Courier New', monospace;
+    font-size: 0.85rem;
+    background: rgba(0, 0, 0, 0.2);
+    padding: 0.5rem;
+    border-radius: 4px;
+}
+
+.move-entry {
+    padding: 0.25rem 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.move-entry:last-child {
+    border-bottom: none;
+}
+
+.move-number {
+    color: var(--text-secondary);
+    margin-right: 0.5rem;
+}
+
+/* Animations */
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.thinking {
+    animation: pulse 1s infinite;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .game-container {
+        flex-direction: column;
+        align-items: center;
+    }
+    
+    .eval-container {
+        flex-direction: row;
+    }
+    
+    .eval-bar {
+        width: 300px;
+        height: 30px;
+        background: linear-gradient(to right, var(--eval-black) 50%, var(--eval-white) 50%);
+    }
+    
+    .eval-fill {
+        width: 50%;
+        height: 100%;
+        bottom: auto;
+        left: 0;
+    }
+    
+    .game-board {
+        grid-template-columns: repeat(8, 40px);
+        grid-template-rows: repeat(8, 40px);
+    }
+    
+    .square {
+        width: 40px;
+        height: 40px;
+    }
+    
+    .piece {
+        width: 32px;
+        height: 32px;
+    }
+}

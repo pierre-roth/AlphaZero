@@ -1,0 +1,311 @@
+"""
+Web Interface for AlphaZero Breakthrough.
+
+Flask backend that serves a Breakthrough game interface and handles bot moves.
+"""
+
+from flask import Flask, jsonify, request, send_from_directory
+from flask_cors import CORS
+import torch
+import os
+import glob
+from typing import Optional
+
+from src.model import AlphaZeroNet
+from src.mcts import MCTS
+from src.game import BreakthroughGame, WHITE, BLACK, BOARD_SIZE
+from src.config import Config
+
+app = Flask(__name__, static_folder='../web', static_url_path='')
+CORS(app)
+
+# Global game state and bot
+device = None
+model = None
+mcts = None
+current_game = None
+current_model_name = None
+
+
+def get_available_models():
+    """List available model checkpoints."""
+    models = []
+    checkpoint_dir = Config.CHECKPOINT_DIR
+    
+    if os.path.exists(checkpoint_dir):
+        # Find all .pt files
+        for f in glob.glob(os.path.join(checkpoint_dir, "*.pt")):
+            name = os.path.basename(f)
+            size = os.path.getsize(f)
+            models.append({
+                'name': name,
+                'path': f,
+                'size_mb': round(size / (1024 * 1024), 2),
+            })
+    
+    # Sort by name
+    models.sort(key=lambda x: x['name'])
+    
+    return models
+
+
+def load_model(model_path: str) -> tuple[bool, str]:
+    """
+    Load a model from checkpoint with dynamic architecture detection.
+    
+    Returns:
+        Tuple of (success: bool, message: str)
+    """
+    global model, mcts, current_model_name, device
+    
+    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    
+    # Default architecture from config
+    num_blocks = Config.RESNET_BLOCKS
+    num_filters = Config.RESNET_FILTERS
+    
+    if not os.path.exists(model_path):
+        print(f"No checkpoint found at {model_path}, using random weights")
+        model = AlphaZeroNet(num_blocks=num_blocks, num_filters=num_filters).to(device)
+        current_model_name = "random"
+        model.eval()
+        mcts = MCTS(model, num_simulations=Config.MCTS_SIMULATIONS_INFERENCE, device=str(device))
+        return True, "Using random weights (no checkpoint found)"
+    
+    try:
+        checkpoint = torch.load(model_path, map_location=device, weights_only=False)
+        # Try to get architecture from checkpoint
+        if 'config' in checkpoint:
+            num_blocks = checkpoint['config'].get('num_blocks', num_blocks)
+            num_filters = checkpoint['config'].get('num_filters', num_filters)
+        
+        model = AlphaZeroNet(num_blocks=num_blocks, num_filters=num_filters).to(device)
+        model.load_state_dict(checkpoint['state_dict'])
+        current_model_name = os.path.basename(model_path)
+        model.eval()
+        mcts = MCTS(model, num_simulations=Config.MCTS_SIMULATIONS_INFERENCE, device=str(device))
+        print(f"Loaded model from {model_path} ({num_blocks} blocks, {num_filters} filters)")
+        return True, f"Loaded {current_model_name}"
+    except Exception as e:
+        error_msg = f"Error loading model: {e}"
+        print(error_msg)
+        return False, error_msg
+
+
+def init_bot():
+    """Initialize with default model."""
+    load_model(Config.get_checkpoint_path())
+
+
+def board_to_json(game: BreakthroughGame) -> dict:
+    """Convert board state to JSON-serializable format."""
+    board_list = []
+    for row in range(BOARD_SIZE):
+        row_list = []
+        for col in range(BOARD_SIZE):
+            cell = int(game.board[row, col])
+            row_list.append(cell)
+        board_list.append(row_list)
+    
+    return {
+        'board': board_list,
+        'turn': 'white' if game.turn == WHITE else 'black',
+    }
+
+
+@app.route('/')
+def index():
+    """Serve the main page."""
+    return send_from_directory(app.static_folder, 'index.html')
+
+
+@app.route('/api/models', methods=['GET'])
+def list_models():
+    """List available models."""
+    models = get_available_models()
+    return jsonify({
+        'models': models,
+        'current': current_model_name
+    })
+
+
+@app.route('/api/config', methods=['GET'])
+def get_config():
+    """Return game configuration for the frontend."""
+    return jsonify({
+        'board_size': Config.BOARD_SIZE,
+        'num_actions': Config.NUM_ACTIONS
+    })
+
+
+@app.route('/api/models/select', methods=['POST'])
+def select_model():
+    """Select a model to use."""
+    data = request.get_json() or {}
+    model_name = data.get('model')
+    
+    if not model_name:
+        return jsonify({'error': 'No model specified'}), 400
+    
+    model_path = os.path.join("checkpoints", model_name)
+    if not os.path.exists(model_path):
+        return jsonify({'error': f'Model not found: {model_name}'}), 404
+    
+    success, message = load_model(model_path)
+    
+    if not success:
+        return jsonify({'error': message}), 500
+    
+    return jsonify({
+        'success': True,
+        'current': current_model_name,
+        'message': message
+    })
+
+
+@app.route('/api/new', methods=['POST'])
+def new_game():
+    """Start a new game."""
+    global current_game
+    
+    data = request.get_json() or {}
+    player_color = data.get('color', 'white')
+    
+    # Optionally select model for this game
+    model_name = data.get('model')
+    if model_name:
+        model_path = os.path.join("checkpoints", model_name)
+        if os.path.exists(model_path):
+            load_model(model_path)
+    
+    current_game = BreakthroughGame()
+    
+    response = board_to_json(current_game)
+    response['player_color'] = player_color
+    response['game_over'] = False
+    response['model'] = current_model_name
+    response['legal_moves'] = get_legal_moves_json()
+    
+    # If player is black, bot makes first move
+    if player_color == 'black':
+        bot_response = make_bot_move()
+        response.update(bot_response)
+    
+    return jsonify(response)
+
+
+def get_legal_moves_json():
+    """Get legal moves as list of [from_row, from_col, to_row, to_col]."""
+    if current_game is None:
+        return []
+    return [list(move) for move in current_game.get_legal_moves()]
+
+
+@app.route('/api/move', methods=['POST'])
+def player_move():
+    """Handle player move and respond with bot move."""
+    global current_game
+    
+    if current_game is None:
+        return jsonify({'error': 'No game in progress'}), 400
+    
+    data = request.get_json()
+    move_data = data.get('move')
+    
+    if not move_data or len(move_data) != 4:
+        return jsonify({'error': 'Invalid move format'}), 400
+    
+    from_row, from_col, to_row, to_col = move_data
+    move = (from_row, from_col, to_row, to_col)
+    
+    # Validate move
+    legal_moves = current_game.get_legal_moves()
+    if move not in legal_moves:
+        return jsonify({'error': 'Illegal move'}), 400
+    
+    current_game.step(move)
+    
+    # Check if game over after player move
+    if current_game.is_terminal():
+        response = board_to_json(current_game)
+        response['game_over'] = True
+        response['result'] = get_result()
+        response['legal_moves'] = []
+        return jsonify(response)
+    
+    # Bot responds
+    bot_response = make_bot_move()
+    return jsonify(bot_response)
+
+
+@app.route('/api/state', methods=['GET'])
+def get_state():
+    """Get current game state."""
+    global current_game
+    
+    if current_game is None:
+        return jsonify({'error': 'No game in progress'}), 400
+    
+    response = board_to_json(current_game)
+    response['game_over'] = current_game.is_terminal()
+    response['result'] = get_result() if current_game.is_terminal() else None
+    response['legal_moves'] = get_legal_moves_json()
+    response['model'] = current_model_name
+    
+    return jsonify(response)
+
+
+def make_bot_move():
+    """Make a move using MCTS and return the new state."""
+    global current_game, mcts
+    
+    # Run MCTS search
+    root = mcts.search(current_game, add_noise=False)
+    
+    # Get best action
+    best_action = -1
+    best_visits = -1
+    for action, child in root.children.items():
+        if child.visit_count > best_visits:
+            best_visits = child.visit_count
+            best_action = action
+    
+    # Get evaluation (convert to absolute: positive = White winning)
+    # root.value() is from current player's perspective, so negate for Black
+    eval_score = root.value() if root.children else 0
+    if current_game.turn == BLACK:
+        eval_score = -eval_score
+    
+    # Make move
+    move = current_game.decode_action(best_action)
+    current_game.step(move)
+    
+    response = board_to_json(current_game)
+    response['bot_move'] = list(move)
+    response['evaluation'] = float(eval_score)
+    response['game_over'] = current_game.is_terminal()
+    response['result'] = get_result() if current_game.is_terminal() else None
+    response['legal_moves'] = get_legal_moves_json()
+    
+    return response
+
+
+def get_result():
+    """Get the game result string."""
+    if not current_game.is_terminal():
+        return None
+    
+    w, l = current_game.get_result()
+    if w == 1.0:
+        return 'White wins!'
+    elif l == 1.0:
+        return 'Black wins!'
+    else:
+        return None  # Game not finished
+
+
+# Initialize bot when module loads
+init_bot()
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5051, debug=True)
