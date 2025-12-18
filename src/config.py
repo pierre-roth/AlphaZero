@@ -36,27 +36,28 @@ class Config:
     # ==========================================================================
     # MCTS Parameters
     # ==========================================================================
-    MCTS_SIMULATIONS = 400      # Simulations per search
-    MCTS_SIMULATIONS_INFERENCE = 400  # Simulations for web inference 
-    C_PUCT = 1.5                # Exploration constant
+    MCTS_SIMULATIONS = 400              # Simulations per search
+    MCTS_SIMULATIONS_INFERENCE = 200    # Simulations for web inference 
+    C_PUCT = 1.5                        # Exploration constant
     # First Play Urgency: reduction from parent Q-value for unvisited nodes.
     # FPU = parent_Q - FPU_REDUCTION. Prevents "despair exploration" in losing positions.
     # Currently the FPU is disabled and replaced with q = 0 for early game.
     FPU_REDUCTION = 0.0
-    DIRICHLET_ALPHA = 0.4        # Dirichlet noise alpha (higher = more exploration for small boards)
-    DIRICHLET_EPSILON = 0.25    # Dirichlet noise weight
-    TEMPERATURE_THRESHOLD = 15  # Moves before switching to deterministic
+    DIRICHLET_ALPHA = 0.3               # Dirichlet noise alpha (higher = more exploration for small boards)
+    DIRICHLET_EPSILON = 0.25            # Dirichlet noise weight
+    TEMPERATURE_THRESHOLD = 16          # Moves before switching to deterministic
 
     # ==========================================================================
     # Training Parameters
     # ==========================================================================
-    BATCH_SIZE = 512            # Larger batch for smoother gradients
+    BATCH_SIZE = 1024           # Larger batch for smoother gradients
     LEARNING_RATE = 0.001
     WEIGHT_DECAY = 1e-4
-    PARALLEL_GAMES = 128         # Games to run in parallel during self-play
+    GRAD_CLIP_NORM = 1.0        # Gradient clipping to prevent exploding gradients
+    PARALLEL_GAMES = 128        # Games to run in parallel during self-play
     SELFPLAY_BATCHES = 8        # Number of self-play rounds before each training cycle
-    BUFFER_SIZE = 150000        # Replay buffer size (saved with checkpoint)
-    TRAINING_EPOCHS = 2         # Epochs per training iteration (reduced to prevent overfitting)
+    BUFFER_SIZE = 300000        # Replay buffer size (saved with checkpoint)
+    TRAINING_EPOCHS = 1         # Epochs per training iteration (reduced to prevent overfitting)
 
     # ==========================================================================
     # Paths

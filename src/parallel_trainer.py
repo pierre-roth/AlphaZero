@@ -261,6 +261,11 @@ class ParallelTrainer:
                 # Backward pass
                 self.optimizer.zero_grad()
                 loss.backward()
+                
+                # Gradient clipping to prevent exploding gradients
+                if Config.GRAD_CLIP_NORM > 0:
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), Config.GRAD_CLIP_NORM)
+                
                 self.optimizer.step()
                 
                 total_loss += loss.item()
