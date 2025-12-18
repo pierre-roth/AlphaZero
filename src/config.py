@@ -53,9 +53,9 @@ class Config:
     BATCH_SIZE = 512            # Larger batch for smoother gradients
     LEARNING_RATE = 0.001
     WEIGHT_DECAY = 1e-4
-    PARALLEL_GAMES = 64         # Games to run in parallel during self-play
+    PARALLEL_GAMES = 128         # Games to run in parallel during self-play
     SELFPLAY_BATCHES = 8        # Number of self-play rounds before each training cycle
-    BUFFER_SIZE = 100000        # Replay buffer size (saved with checkpoint)
+    BUFFER_SIZE = 150000        # Replay buffer size (saved with checkpoint)
     TRAINING_EPOCHS = 2         # Epochs per training iteration (reduced to prevent overfitting)
 
     # ==========================================================================

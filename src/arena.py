@@ -355,7 +355,7 @@ def run_arena():
         
         if new_models:
             # Sort by iteration number
-            new_models.sort(key=lambda x: int(x.replace("iteration_", "").replace(".pt", "")))
+            new_models.sort(key=lambda x: int(x.replace("iteration_", "").replace(".pt", "").replace("_large", "").replace("_medium", "").replace("_small", "")))
             
             for model_name in new_models:
                 print(f"\n{'='*50}")

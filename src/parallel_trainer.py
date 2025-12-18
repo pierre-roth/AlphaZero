@@ -412,18 +412,18 @@ class ParallelTrainer:
             self.examples = []
             return 0
         
-        data = np.load(data_path)
-        states = data['states']
-        policies = data['policies']
-        wls = data['wls']
+        # Use memory mapping to avoid loading the entire file into RAM.
+        # This is critical as the training data file grows unbounded.
+        data = np.load(data_path, mmap_mode='r')
+        total_examples = len(data['states'])
         
-        total_examples = len(states)
+        # Determine slice range for the most recent examples
+        start_idx = max(0, total_examples - max_examples)
         
-        # Take only the most recent max_examples
-        if total_examples > max_examples:
-            states = states[-max_examples:]
-            policies = policies[-max_examples:]
-            wls = wls[-max_examples:]
+        # Slice and copy to break reference to the mmap (prevents memory leaks)
+        states = data['states'][start_idx:].copy()
+        policies = data['policies'][start_idx:].copy()
+        wls = data['wls'][start_idx:].copy()
         
         # Convert to list of tuples for compatibility
         self.examples = [(states[i], policies[i], wls[i]) for i in range(len(states))]

@@ -85,6 +85,14 @@ async function startGame(color) {
         console.error('Error starting game:', error);
         setStatus('Error starting game. Is the server running?');
     }
+
+    // Update eval bar orientation
+    const evalBar = document.querySelector('.eval-bar');
+    if (color === 'black') {
+        evalBar.classList.add('flipped');
+    } else {
+        evalBar.classList.remove('flipped');
+    }
 }
 
 /**
@@ -301,15 +309,15 @@ function renderMoveHistory() {
  */
 function updateEval(value) {
     // Value is from -1 (black winning) to 1 (white winning)
-    // Convert to percentage for display
+    // Convert to percentage for white
     const percentage = ((value + 1) / 2) * 100;
 
-    // Flip if playing black
-    const displayPercentage = playerColor === 'white' ? percentage : 100 - percentage;
-
-    evalFillEl.style.height = `${displayPercentage}%`;
+    // Set CSS variable
+    const evalBar = document.querySelector('.eval-bar');
+    evalBar.style.setProperty('--eval-percent', `${percentage}%`);
 
     // Format label
+    // If playing white, show value as is. If playing black, negate it.
     const displayValue = playerColor === 'white' ? value : -value;
     evalLabelEl.textContent = displayValue >= 0 ? `+${displayValue.toFixed(2)}` : displayValue.toFixed(2);
 }

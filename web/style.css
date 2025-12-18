@@ -73,7 +73,7 @@ header h1 {
 .eval-bar {
     width: 30px;
     height: 400px;
-    background: linear-gradient(to top, var(--eval-black) 50%, var(--eval-white) 50%);
+    background: var(--eval-black);
     border-radius: 4px;
     overflow: hidden;
     position: relative;
@@ -85,9 +85,15 @@ header h1 {
     bottom: 0;
     left: 0;
     right: 0;
-    height: 50%;
+    height: var(--eval-percent, 50%);
     background: var(--eval-white);
     transition: height 0.5s ease;
+}
+
+/* Flipped state for desktop (Player Black) - fill from top */
+.eval-bar.flipped .eval-fill {
+    bottom: auto;
+    top: 0;
 }
 
 .eval-label {
@@ -285,8 +291,15 @@ header h1 {
 
 /* Animations */
 @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.5;
+    }
 }
 
 .thinking {
@@ -299,34 +312,42 @@ header h1 {
         flex-direction: column;
         align-items: center;
     }
-    
+
     .eval-container {
         flex-direction: row;
     }
-    
+
     .eval-bar {
         width: 300px;
         height: 30px;
-        background: linear-gradient(to right, var(--eval-black) 50%, var(--eval-white) 50%);
+        background: var(--eval-black);
     }
-    
+
     .eval-fill {
-        width: 50%;
+        width: var(--eval-percent, 50%);
         height: 100%;
         bottom: auto;
         left: 0;
+        top: 0;
+        transition: width 0.5s ease;
     }
-    
+
+    /* Flipped state for mobile (Player Black) - fill from right */
+    .eval-bar.flipped .eval-fill {
+        left: auto;
+        right: 0;
+    }
+
     .game-board {
         grid-template-columns: repeat(8, 40px);
         grid-template-rows: repeat(8, 40px);
     }
-    
+
     .square {
         width: 40px;
         height: 40px;
     }
-    
+
     .piece {
         width: 32px;
         height: 32px;
