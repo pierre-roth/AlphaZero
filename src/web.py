@@ -299,6 +299,21 @@ def player_move():
     return jsonify(bot_response)
 
 
+@app.route('/api/bot_move', methods=['POST'])
+def bot_move_endpoint():
+    """Trigger a bot move for the current player."""
+    global current_game
+    
+    if current_game is None:
+        return jsonify({'error': 'No game in progress'}), 400
+    
+    if current_game.is_terminal():
+        return jsonify({'error': 'Game already finished'}), 400
+    
+    bot_response = make_bot_move()
+    return jsonify(bot_response)
+
+
 @app.route('/api/state', methods=['GET'])
 def get_state():
     """Get current game state."""

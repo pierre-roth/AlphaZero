@@ -43,7 +43,7 @@ class Config:
     # FPU = parent_Q - FPU_REDUCTION. Prevents "despair exploration" in losing positions.
     # Currently the FPU is disabled and replaced with q = 0 for early game.
     FPU_REDUCTION = 0.0
-    DIRICHLET_ALPHA = 0.3               # Dirichlet noise alpha (higher = more exploration for small boards)
+    DIRICHLET_ALPHA = 0.35              # Dirichlet noise alpha (higher = more exploration for small boards)
     DIRICHLET_EPSILON = 0.25            # Dirichlet noise weight
     TEMPERATURE_THRESHOLD = 16          # Moves before switching to deterministic
 
@@ -52,6 +52,8 @@ class Config:
     # ==========================================================================
     BATCH_SIZE = 1024           # Larger batch for smoother gradients
     LEARNING_RATE = 0.001
+    LR_SCHEDULER_T_MAX = 200    # LR decay period (iterations)
+    LR_SCHEDULER_ETA_MIN = 1e-5 # Minimum learning rate
     WEIGHT_DECAY = 1e-4
     GRAD_CLIP_NORM = 1.0        # Gradient clipping to prevent exploding gradients
     PARALLEL_GAMES = 128        # Games to run in parallel during self-play

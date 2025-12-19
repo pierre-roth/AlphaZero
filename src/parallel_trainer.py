@@ -125,8 +125,8 @@ class ParallelTrainer:
             lr=Config.LEARNING_RATE,
             weight_decay=Config.WEIGHT_DECAY
         )
-        # Cosine annealing LR scheduler (decays over 1000 training calls)
-        self.scheduler = CosineAnnealingLR(self.optimizer, T_max=1000, eta_min=1e-5)
+        # Cosine annealing LR scheduler
+        self.scheduler = CosineAnnealingLR(self.optimizer, T_max=Config.LR_SCHEDULER_T_MAX, eta_min=Config.LR_SCHEDULER_ETA_MIN)
         self.mcts = MCTS(model, num_simulations=num_simulations, device=device)
         self.examples: List[Tuple[np.ndarray, np.ndarray, np.ndarray]] = []
         self.max_examples = Config.BUFFER_SIZE  # Cap replay buffer at this size
@@ -329,6 +329,8 @@ class ParallelTrainer:
         self.optimizer.load_state_dict(checkpoint['optimizer'])
         if 'scheduler' in checkpoint:
             self.scheduler.load_state_dict(checkpoint['scheduler'])
+            # Ensure the current code's T_max is used, regardless of what was in the checkpoint
+            self.scheduler.T_max = Config.LR_SCHEDULER_T_MAX
         print(f"Loaded checkpoint: {filename}")
         return True
     
@@ -469,6 +471,8 @@ class ParallelTrainer:
             self.optimizer.load_state_dict(checkpoint['optimizer'])
             if 'scheduler' in checkpoint:
                 self.scheduler.load_state_dict(checkpoint['scheduler'])
+                # Ensure the current code's T_max is used
+                self.scheduler.T_max = Config.LR_SCHEDULER_T_MAX
             # Don't load examples from legacy checkpoints during normal operation
             print(f"Checkpoint loaded from {path}")
         else:

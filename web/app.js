@@ -18,6 +18,8 @@ let legalMoves = [];
 let moveHistory = [];
 let isThinking = false;
 let moveCount = 0;
+let isAiVsAi = false;
+let stopAiFlag = false;
 
 // DOM Elements
 const boardEl = document.getElementById('board');
@@ -40,6 +42,8 @@ async function init() {
     // Setup event listeners
     document.getElementById('newGameWhite').addEventListener('click', () => startGame('white'));
     document.getElementById('newGameBlack').addEventListener('click', () => startGame('black'));
+    document.getElementById('newGameAi').addEventListener('click', () => startGame('watch'));
+    document.getElementById('stopAi').addEventListener('click', () => { stopAiFlag = true; });
 
     // Initial render
     initializeEmptyBoard();
@@ -52,9 +56,17 @@ init();
  */
 async function startGame(color) {
     playerColor = color;
+    isAiVsAi = (color === 'watch');
+    stopAiFlag = false;
     moveHistory = [];
     selectedSquare = null;
     moveCount = 0;
+
+    // Toggle buttons visibility
+    document.getElementById('stopAi').style.display = isAiVsAi ? 'block' : 'none';
+    document.getElementById('newGameAi').style.display = isAiVsAi ? 'none' : 'block';
+    document.getElementById('newGameWhite').disabled = isAiVsAi;
+    document.getElementById('newGameBlack').disabled = isAiVsAi;
 
     // Get selected model size
     const sizeSelect = document.getElementById('modelSize');
@@ -66,7 +78,7 @@ async function startGame(color) {
         const response = await fetch('/api/new', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ color, size: modelSize })
+            body: JSON.stringify({ color: isAiVsAi ? 'white' : color, size: modelSize })
         });
 
         const data = await response.json();
@@ -81,9 +93,19 @@ async function startGame(color) {
         renderBoard();
         updateStatus(data);
 
+        if (isAiVsAi) {
+            // Start the AI vs AI loop
+            aiVsAiLoop();
+        }
+
     } catch (error) {
         console.error('Error starting game:', error);
         setStatus('Error starting game. Is the server running?');
+        // Reset buttons if error
+        document.getElementById('stopAi').style.display = 'none';
+        document.getElementById('newGameAi').style.display = 'block';
+        document.getElementById('newGameWhite').disabled = false;
+        document.getElementById('newGameBlack').disabled = false;
     }
 
     // Update eval bar orientation
@@ -254,6 +276,75 @@ async function makeMove(move) {
 }
 
 /**
+ * Loop for AI vs AI mode
+ */
+async function aiVsAiLoop() {
+    while (isAiVsAi && !stopAiFlag) {
+        const statusResponse = await fetch('/api/state');
+        const state = await statusResponse.json();
+
+        if (state.game_over) {
+            isAiVsAi = false;
+            break;
+        }
+
+        isThinking = true;
+        setStatus('🤖 AI vs AI: Thinking...');
+        statusEl.classList.add('thinking');
+
+        try {
+            const response = await fetch('/api/bot_move', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+
+            const data = await response.json();
+
+            if (data.error) {
+                console.error('AI Loop Error:', data.error);
+                isAiVsAi = false;
+                break;
+            }
+
+            // Update state
+            currentBoard = data.board;
+            legalMoves = data.legal_moves || [];
+
+            if (data.bot_move) {
+                addMove(data.bot_move, 'bot');
+                updateEval(data.evaluation || 0);
+            }
+
+            renderBoard();
+            updateStatus(data);
+
+            // Wait a bit before next move
+            await new Promise(resolve => setTimeout(resolve, 500));
+
+        } catch (error) {
+            console.error('AI Loop Network Error:', error);
+            isAiVsAi = false;
+            break;
+        } finally {
+            isThinking = false;
+            statusEl.classList.remove('thinking');
+        }
+    }
+
+    // Cleanup when done
+    isAiVsAi = false;
+    document.getElementById('stopAi').style.display = 'none';
+    document.getElementById('newGameAi').style.display = 'block';
+    document.getElementById('newGameWhite').disabled = false;
+    document.getElementById('newGameBlack').disabled = false;
+
+    if (stopAiFlag) {
+        setStatus('Stopped AI vs AI.');
+        stopAiFlag = false;
+    }
+}
+
+/**
  * Update the status display
  */
 function updateStatus(data) {
@@ -261,8 +352,12 @@ function updateStatus(data) {
         setStatus(`Game Over: ${data.result}`);
     } else {
         const turn = data.turn === 'white' ? 'White' : 'Black';
-        const yourTurn = (playerColor === data.turn);
-        setStatus(yourTurn ? `Your turn (${turn})` : `Bot's turn (${turn})`);
+        if (isAiVsAi) {
+            setStatus(`AI vs AI: ${turn} to move...`);
+        } else {
+            const yourTurn = (playerColor === data.turn);
+            setStatus(yourTurn ? `Your turn (${turn})` : `Bot's turn (${turn})`);
+        }
     }
 }
 
