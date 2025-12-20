@@ -281,7 +281,7 @@ def select_model():
     if not model_name:
         return jsonify({'error': 'No model specified'}), 400
     
-    model_path = os.path.join("checkpoints", model_name)
+    model_path = os.path.join(Config.CHECKPOINT_DIR, model_name)
     if not os.path.exists(model_path):
         return jsonify({'error': f'Model not found: {model_name}'}), 404
     

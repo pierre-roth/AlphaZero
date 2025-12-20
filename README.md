@@ -35,7 +35,7 @@ pip install torch numpy flask flask-cors tqdm
 ### 2. Training
 Start the self-play training loop:
 ```bash
-python main.py train [--size small|medium|large]
+python main.py train
 ```
 - **Resumable**: Automatically continues from the latest checkpoint.
 - **Parallel**: Runs 100+ games simultaneously for efficiency.
@@ -65,7 +65,7 @@ python main.py web
 ## Network Architecture
 
 - **Input:** 3 planes (8×8): my pieces, opponent pieces, ones
-- **Tower:** Configurable (Small: 5x64, Medium: 10x128, Large: 20x128)
+- **Tower:** 20 ResNet blocks with 128 filters
 - **Policy head:** 192 outputs (64 squares × 3 directions)
 - **Value head:** WL (Win/Loss) probabilities
 
@@ -79,11 +79,8 @@ python -m pytest tests/ -v
 
 All settings are centralized in `src/config.py`.
 
-### Model Sizes
-Defined in `Config.MODEL_SIZES`. You can choose different architectures:
-- **Small**: 5 blocks, 64 filters (Fast, good for debugging)
-- **Medium**: 10 blocks, 128 filters (Balanced)
-- **Large**: 20 blocks, 128 filters (Strongest, used for production training)
+### Architecture
+The network uses a fixed architecture defined by `RESNET_BLOCKS` (20) and `RESNET_FILTERS` (128).
 
 ### Hyperparameters
 Key parameters to tune in `src/config.py`:

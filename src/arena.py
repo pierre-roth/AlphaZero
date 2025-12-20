@@ -67,13 +67,7 @@ class ArenaState:
                 data = json.load(f)
                 self.ratings = data.get('ratings', {})
                 self.matches = data.get('matches', [])
-                # Handle legacy or standard best_model
-                best_models_dict = data.get('best_models', {})
-                if isinstance(best_models_dict, dict):
-                    # Legacy: grab 'large' or whatever is there, or just take the standard key
-                    self.best_model = best_models_dict.get('large')
-                else:
-                    self.best_model = data.get('best_model')
+                self.best_model = data.get('best_model')
                 
                 # Rebuild match_counts from historical data for consistency
                 self._rebuild_match_counts()
