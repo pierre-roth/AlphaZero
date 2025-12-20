@@ -43,10 +43,31 @@
                             <option value="large" selected>Large</option>
                         </select>
                     </div>
-                    <button id="newGameWhite" class="btn btn-primary">Play as White (○)</button>
-                    <button id="newGameBlack" class="btn btn-secondary">Play as Black (●)</button>
-                    <button id="newGameAi" class="btn btn-accent">AI vs AI</button>
-                    <button id="stopAi" class="btn btn-danger" style="display: none;">Stop AI</button>
+                    <div class="setup-panel">
+                        <h4>Game Setup</h4>
+                        <div class="player-selectors">
+                            <div class="selector-group">
+                                <label for="whitePlayer">White (○)</label>
+                                <select id="whitePlayer">
+                                    <option value="human" selected>Human</option>
+                                    <option value="alphazero">AlphaZero</option>
+                                    <option value="baseline">Baseline</option>
+                                </select>
+                            </div>
+                            <div class="selector-group">
+                                <label for="blackPlayer">Black (●)</label>
+                                <select id="blackPlayer">
+                                    <option value="human">Human</option>
+                                    <option value="alphazero" selected>AlphaZero</option>
+                                    <option value="baseline">Baseline</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="action-buttons">
+                            <button id="startGame" class="btn btn-primary">Start Game</button>
+                            <button id="stopGame" class="btn btn-danger" style="display: none;">Stop</button>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="rules">

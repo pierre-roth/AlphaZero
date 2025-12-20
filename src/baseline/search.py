@@ -42,6 +42,9 @@ class TranspositionTable:
         # Standard TT handles collisions by index. Python Dict handles collisions internally.
         # So we only care about "Updating the entry for THIS position".
         
+        
+        existing = self.table.get(key)
+        
         if existing:
             old_depth, old_flag, _, _ = existing
             if depth >= old_depth or flag == FLAG_EXACT:

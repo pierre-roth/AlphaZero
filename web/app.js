@@ -40,10 +40,11 @@ async function init() {
     }
 
     // Setup event listeners
-    document.getElementById('newGameWhite').addEventListener('click', () => startGame('white'));
-    document.getElementById('newGameBlack').addEventListener('click', () => startGame('black'));
-    document.getElementById('newGameAi').addEventListener('click', () => startGame('watch'));
-    document.getElementById('stopAi').addEventListener('click', () => { stopAiFlag = true; });
+    const startBtn = document.getElementById('startGame');
+    const stopBtn = document.getElementById('stopGame');
+
+    if (startBtn) startBtn.addEventListener('click', startGame);
+    if (stopBtn) stopBtn.addEventListener('click', () => { stopAiFlag = true; });
 
     // Initial render
     initializeEmptyBoard();
@@ -54,67 +55,92 @@ init();
 /**
  * Start a new game
  */
-async function startGame(color) {
-    playerColor = color;
-    isAiVsAi = (color === 'watch');
+async function startGame() {
+    // Get configuration
+    const whiteType = document.getElementById('whitePlayer').value;
+    const blackType = document.getElementById('blackPlayer').value;
+    const modelSize = document.getElementById('modelSize').value || 'medium';
+
+    // Determine if we need auto-play loop (if NO humans involved)
+    // Actually, even if Human vs Bot, we don't need a loop, the bot moves on response.
+    // The LOOP is only needed if BOTH are bots.
+    isAiVsAi = (whiteType !== 'human' && blackType !== 'human');
+
     stopAiFlag = false;
     moveHistory = [];
     selectedSquare = null;
     moveCount = 0;
 
-    // Toggle buttons visibility
-    document.getElementById('stopAi').style.display = isAiVsAi ? 'block' : 'none';
-    document.getElementById('newGameAi').style.display = isAiVsAi ? 'none' : 'block';
-    document.getElementById('newGameWhite').disabled = isAiVsAi;
-    document.getElementById('newGameBlack').disabled = isAiVsAi;
+    // Determine player color for UI perspective
+    // If Human vs Bot, perspective is Human.
+    // If Human vs Human, perspective is White (or toggle?). Let's default White.
+    // If Bot vs Bot, perspective is White.
+    if (whiteType === 'human' && blackType !== 'human') {
+        playerColor = 'white';
+    } else if (whiteType !== 'human' && blackType === 'human') {
+        playerColor = 'black';
+    } else {
+        playerColor = 'white'; // Default perspective
+    }
 
-    // Get selected model size
-    const sizeSelect = document.getElementById('modelSize');
-    const modelSize = sizeSelect ? sizeSelect.value : 'medium';
+    // Toggle buttons
+    document.getElementById('startGame').style.display = isAiVsAi ? 'none' : 'block';
+    document.getElementById('stopGame').style.display = isAiVsAi ? 'block' : 'none';
 
-    setStatus(`Loading ${modelSize} model...`);
+    // Disable selectors during game? Optional enhancement.
+
+    setStatus(`Starting game (${whiteType} vs ${blackType})...`);
 
     try {
         const response = await fetch('/api/new', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ color: isAiVsAi ? 'white' : color, size: modelSize })
+            body: JSON.stringify({
+                white_type: whiteType,
+                black_type: blackType,
+                size: modelSize
+            })
         });
 
         const data = await response.json();
         currentBoard = data.board;
         legalMoves = data.legal_moves || [];
 
+        // Store types for local logic
+        // We might need to know who is human locally to allowing clicking
+        window.gameConfig = { white: whiteType, black: blackType };
+
         if (data.bot_move) {
-            addMove(data.bot_move, 'bot');
-            updateEval(data.evaluation || 0);
+            addMove(data.bot_move, 'white'); // White moved
+            updateEval(data.evaluation);
         }
 
         renderBoard();
         updateStatus(data);
 
         if (isAiVsAi) {
-            // Start the AI vs AI loop
-            aiVsAiLoop();
+            gameLoop();
         }
 
     } catch (error) {
         console.error('Error starting game:', error);
-        setStatus('Error starting game. Is the server running?');
-        // Reset buttons if error
-        document.getElementById('stopAi').style.display = 'none';
-        document.getElementById('newGameAi').style.display = 'block';
-        document.getElementById('newGameWhite').disabled = false;
-        document.getElementById('newGameBlack').disabled = false;
+        setStatus('Error starting game.');
+        resetControls();
     }
 
     // Update eval bar orientation
     const evalBar = document.querySelector('.eval-bar');
-    if (color === 'black') {
+    if (playerColor === 'black') {
         evalBar.classList.add('flipped');
     } else {
         evalBar.classList.remove('flipped');
     }
+}
+
+function resetControls() {
+    document.getElementById('startGame').style.display = 'block';
+    document.getElementById('stopGame').style.display = 'none';
+    isAiVsAi = false;
 }
 
 /**
@@ -189,7 +215,24 @@ function createSquare(row, col, displayRow, displayCol, piece) {
 async function onSquareClick(row, col, piece) {
     if (isThinking) return;
 
-    // If we have a selected piece, try to move
+    // Check if it's human turn
+    const currentTurnColor = (currentBoard && currentBoard.length) ?
+        // We need to track turn locally or infer from board?
+        // App doesn't track global 'turn' variable well, inferred from status updates.
+        // Let's rely on `legalMoves`. If legalMoves is empty, we can't move.
+        // Also check if current player is configured as Human.
+        'unknown' : 'unknown';
+
+    // Simplified: If legalMoves is empty, we probably can't move.
+    // Also, we should only allow selecting OUR pieces.
+    // Logic: `isOurPiece` checks `playerColor`.
+    // But now `playerColor` is just view perspective.
+    // We need to check if the piece matches the Configured Human Color.
+
+    // Determine whose turn it is? 
+    // We don't have explicit Turn variable in global scope clearly updated.
+    // Let's add `turn` to global state from updates.
+
     if (selectedSquare) {
         const move = [selectedSquare.row, selectedSquare.col, row, col];
 
@@ -201,7 +244,7 @@ async function onSquareClick(row, col, piece) {
         if (isLegal) {
             await makeMove(move);
             selectedSquare = null;
-        } else if (isOurPiece(piece)) {
+        } else if (isPieceClickable(piece)) {
             // Select new piece
             selectedSquare = { row, col };
         } else {
@@ -209,8 +252,8 @@ async function onSquareClick(row, col, piece) {
             selectedSquare = null;
         }
     } else {
-        // Select piece if it's ours
-        if (isOurPiece(piece)) {
+        // Select piece if it's ours and we are human
+        if (isPieceClickable(piece)) {
             selectedSquare = { row, col };
         }
     }
@@ -219,14 +262,18 @@ async function onSquareClick(row, col, piece) {
 }
 
 /**
- * Check if a piece belongs to the current player
+ * Check if a piece belongs to the current turn's human player
  */
-function isOurPiece(piece) {
-    if (playerColor === 'white') {
-        return piece === WHITE;
-    } else {
-        return piece === BLACK;
-    }
+function isPieceClickable(piece) {
+    // We technically need to know whose turn it is.
+    // But simpler: Is this piece consistent with a HUMAN player configuration?
+    // And is it their turn (implied by legalMoves existence for that color?)
+
+    // If piece is WHITE, and White Config is Human.
+    if (piece === WHITE && window.gameConfig && window.gameConfig.white === 'human') return true;
+    if (piece === BLACK && window.gameConfig && window.gameConfig.black === 'human') return true;
+
+    return false;
 }
 
 /**
@@ -234,7 +281,7 @@ function isOurPiece(piece) {
  */
 async function makeMove(move) {
     isThinking = true;
-    setStatus('🤔 Bot is thinking...');
+    setStatus('🤔 Bot is thinking...'); // Default message, updated later
     statusEl.classList.add('thinking');
 
     try {
@@ -254,13 +301,13 @@ async function makeMove(move) {
         }
 
         // Update state
-        addMove(move, 'player');
+        addMove(move, data.turn === 'black' ? 'white' : 'black'); // Previous turn moved
         currentBoard = data.board;
         legalMoves = data.legal_moves || [];
 
         if (data.bot_move) {
-            addMove(data.bot_move, 'bot');
-            updateEval(data.evaluation || 0);
+            addMove(data.bot_move, data.turn); // "Bot" label is generic, maybe improve?
+            updateEval(data.evaluation);
         }
 
         renderBoard();
@@ -276,9 +323,9 @@ async function makeMove(move) {
 }
 
 /**
- * Loop for AI vs AI mode
+ * Loop for AI vs AI / Baseline vs AI
  */
-async function aiVsAiLoop() {
+async function gameLoop() {
     while (isAiVsAi && !stopAiFlag) {
         const statusResponse = await fetch('/api/state');
         const state = await statusResponse.json();
@@ -289,7 +336,7 @@ async function aiVsAiLoop() {
         }
 
         isThinking = true;
-        setStatus('🤖 AI vs AI: Thinking...');
+        setStatus(`Auto-play: ${state.turn} moving...`);
         statusEl.classList.add('thinking');
 
         try {
@@ -301,7 +348,7 @@ async function aiVsAiLoop() {
             const data = await response.json();
 
             if (data.error) {
-                console.error('AI Loop Error:', data.error);
+                console.error('Game Loop Error:', data.error);
                 isAiVsAi = false;
                 break;
             }
@@ -311,18 +358,21 @@ async function aiVsAiLoop() {
             legalMoves = data.legal_moves || [];
 
             if (data.bot_move) {
-                addMove(data.bot_move, 'bot');
-                updateEval(data.evaluation || 0);
+                // Determine who moved?
+                // If turn WAS white, White moved.
+                const whoMoved = state.turn;
+                addMove(data.bot_move, whoMoved);
+                updateEval(data.evaluation);
             }
 
             renderBoard();
             updateStatus(data);
 
-            // Wait a bit before next move
+            // Wait a bit
             await new Promise(resolve => setTimeout(resolve, 500));
 
         } catch (error) {
-            console.error('AI Loop Network Error:', error);
+            console.error('Loop Network Error:', error);
             isAiVsAi = false;
             break;
         } finally {
@@ -331,15 +381,9 @@ async function aiVsAiLoop() {
         }
     }
 
-    // Cleanup when done
-    isAiVsAi = false;
-    document.getElementById('stopAi').style.display = 'none';
-    document.getElementById('newGameAi').style.display = 'block';
-    document.getElementById('newGameWhite').disabled = false;
-    document.getElementById('newGameBlack').disabled = false;
-
+    resetControls();
     if (stopAiFlag) {
-        setStatus('Stopped AI vs AI.');
+        setStatus('Stopped play.');
         stopAiFlag = false;
     }
 }
@@ -352,12 +396,7 @@ function updateStatus(data) {
         setStatus(`Game Over: ${data.result}`);
     } else {
         const turn = data.turn === 'white' ? 'White' : 'Black';
-        if (isAiVsAi) {
-            setStatus(`AI vs AI: ${turn} to move...`);
-        } else {
-            const yourTurn = (playerColor === data.turn);
-            setStatus(yourTurn ? `Your turn (${turn})` : `Bot's turn (${turn})`);
-        }
+        setStatus(`${turn} to move...`);
     }
 }
 
@@ -380,7 +419,21 @@ function formatMove(move) {
  */
 function addMove(move, player) {
     moveCount++;
-    moveHistory.push({ move, player, number: moveCount });
+    // Player argument: 'white', 'black', 'bot'(mapped to turn?)
+    // Clean up labels:
+    let label = player;
+    if (player === 'bot') {
+        // Infer from last known turn? Or just "Bot"
+        // In mixed mode "Bot" is confusing.
+        // Let's try to pass accurate "white" or "black" string.
+        label = (moveCount % 2 === 1) ? 'White' : 'Black';
+    } else if (player === 'player') {
+        label = (moveCount % 2 === 1) ? 'White' : 'Black';
+    } else {
+        label = player.charAt(0).toUpperCase() + player.slice(1);
+    }
+
+    moveHistory.push({ move, player: label, number: moveCount });
     renderMoveHistory();
 }
 
@@ -391,8 +444,7 @@ function renderMoveHistory() {
         const moveEl = document.createElement('div');
         moveEl.className = 'move-entry';
         const formatted = formatMove(entry.move);
-        const playerLabel = entry.player === 'player' ? 'You' : 'Bot';
-        moveEl.innerHTML = `<span class="move-number">${entry.number}.</span> ${playerLabel}: ${formatted}`;
+        moveEl.innerHTML = `<span class="move-number">${entry.number}.</span> ${entry.player}: ${formatted}`;
         movesEl.appendChild(moveEl);
     }
 
@@ -403,17 +455,32 @@ function renderMoveHistory() {
  * Update evaluation bar
  */
 function updateEval(value) {
+    // Check if value is null (baseline)
+    if (value === null || value === undefined) {
+        const evalBar = document.querySelector('.eval-bar');
+        evalBar.style.display = 'none'; // Hide bar
+        evalLabelEl.textContent = '---';
+        return;
+    }
+
+    // Show bar if receiving value
+    const evalBar = document.querySelector('.eval-bar');
+    evalBar.style.display = 'block';
+
     // Value is from -1 (black winning) to 1 (white winning)
     // Convert to percentage for white
     const percentage = ((value + 1) / 2) * 100;
 
     // Set CSS variable
-    const evalBar = document.querySelector('.eval-bar');
     evalBar.style.setProperty('--eval-percent', `${percentage}%`);
 
     // Format label
-    // If playing white, show value as is. If playing black, negate it.
-    const displayValue = playerColor === 'white' ? value : -value;
+    // If playing Black perspective, should we flip sign?
+    // "Value" is usually absolute (positive=White adv).
+    // The previous code flipped display if playerColor=='white'.
+    // Let's just show absolute White Advantage (+/-).
+
+    const displayValue = value;
     evalLabelEl.textContent = displayValue >= 0 ? `+${displayValue.toFixed(2)}` : displayValue.toFixed(2);
 }
 

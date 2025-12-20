@@ -4,17 +4,22 @@ Web Interface for AlphaZero Breakthrough.
 Flask backend that serves a Breakthrough game interface and handles bot moves.
 """
 
+
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 import torch
 import os
 import glob
-from typing import Optional
+from typing import Optional, Tuple, Literal
+import numpy as np
 
 from src.model import AlphaZeroNet
 from src.mcts import MCTS
-from src.game import BreakthroughGame, WHITE, BLACK, BOARD_SIZE
+from src.game import BreakthroughGame, WHITE, BLACK, BOARD_SIZE, EMPTY
 from src.config import Config
+from src.baseline.state import BitboardState
+from src.baseline.search import Search
+from src.baseline.constants import WHITE as BASELINE_WHITE, BLACK as BASELINE_BLACK
 
 app = Flask(__name__, static_folder='../web', static_url_path='')
 CORS(app)
@@ -25,7 +30,16 @@ model = None
 mcts = None
 current_game = None
 current_model_name = None
+baseline_search = Search(time_limit_ms=1000)  # 1 second think time
 
+# Game Modes
+MODE_ALPHAZERO = 'alphazero'
+MODE_BASELINE = 'baseline'
+MODE_AI_VS_BASELINE = 'ai_vs_baseline'
+
+current_mode = MODE_ALPHAZERO
+white_player_type = 'human'
+black_player_type = 'alphazero'
 
 def get_available_models():
     """List available model checkpoints."""
@@ -158,6 +172,75 @@ def init_bot():
     init_bot_for_size(Config.DEFAULT_MODEL_SIZE)
 
 
+# =============================================================================
+# Translation Layer (AlphaZero <-> Baseline)
+# =============================================================================
+
+def game_to_baseline(game: BreakthroughGame) -> BitboardState:
+    """Convert AlphaZero BreakthroughGame to Baseline BitboardState."""
+    white_bb = 0
+    black_bb = 0
+    
+    for r in range(BOARD_SIZE):
+        for c in range(BOARD_SIZE):
+            piece = game.board[r, c]
+            if piece == WHITE:
+                # Map (r, c) to bit index (r*8 + c)
+                idx = r * 8 + c
+                white_bb |= (1 << idx)
+            elif piece == BLACK:
+                idx = r * 8 + c
+                black_bb |= (1 << idx)
+                
+    turn = BASELINE_WHITE if game.turn == WHITE else BASELINE_BLACK
+    
+    return BitboardState(white=white_bb, black=black_bb, turn=turn)
+
+def baseline_move_to_game(move: Tuple[int, int], turn: int) -> Tuple[int, int, int, int]:
+    """Convert Baseline (from_sq, to_sq) to AlphaZero (r1, c1, r2, c2)."""
+    from_sq, to_sq = move
+    
+    r1 = from_sq // 8
+    c1 = from_sq % 8
+    r2 = to_sq // 8
+    c2 = to_sq % 8
+    
+    return (r1, c1, r2, c2)
+
+
+def make_baseline_move_logic() -> dict:
+    """
+    Execute a move using the Baseline engine.
+    Returns the response dictionary similar to bot_move.
+    """
+    global current_game, baseline_search
+    
+    # Convert state
+    bb_state = game_to_baseline(current_game)
+    
+    # Search
+    # Use 1000ms typically
+    best_move, score = baseline_search.search(bb_state, time_ms=1000)
+    
+    if best_move is None:
+        # Should not happen unless game over
+        return {'error': 'Baseline returned no move'}
+        
+    # Apply move to main game
+    game_move = baseline_move_to_game(best_move, current_game.turn)
+    current_game.step(game_move)
+    
+    response = board_to_json(current_game)
+    response['bot_move'] = list(game_move)
+    # Hide evaluation for baseline
+    response['evaluation'] = None 
+    response['game_over'] = current_game.is_terminal()
+    response['result'] = get_result() if current_game.is_terminal() else None
+    response['legal_moves'] = get_legal_moves_json()
+    
+    return response
+
+
 def board_to_json(game: BreakthroughGame) -> dict:
     """Convert board state to JSON-serializable format."""
     board_list = []
@@ -228,30 +311,37 @@ def select_model():
 
 @app.route('/api/new', methods=['POST'])
 def new_game():
-    """Start a new game."""
-    global current_game
+    """Start a new game with specified player types."""
+    global current_game, white_player_type, black_player_type
     
     data = request.get_json() or {}
-    player_color = data.get('color', 'white')
+    white_type = data.get('white_type', 'human') # 'human', 'alphazero', 'baseline'
+    black_type = data.get('black_type', 'alphazero')
     model_size = data.get('size', Config.DEFAULT_MODEL_SIZE)
     
-    # Load model for the requested size
-    init_bot_for_size(model_size)
+    # Set global player types
+    white_player_type = white_type
+    black_player_type = black_type
+
+    # Load AlphaZero model if needed
+    if 'alphazero' in [white_player_type, black_player_type]:
+        init_bot_for_size(model_size)
     
     current_game = BreakthroughGame()
     
     response = board_to_json(current_game)
-    response['player_color'] = player_color
+    response['white_type'] = white_player_type
+    response['black_type'] = black_player_type
     response['game_over'] = False
     response['model'] = current_model_name
     response['model_size'] = model_size
     response['legal_moves'] = get_legal_moves_json()
     
-    # If player is black, bot makes first move
-    if player_color == 'black':
-        bot_response = make_bot_move()
+    # If White is a bot, make move immediately
+    if white_player_type != 'human':
+        bot_response = resolve_bot_move()
         response.update(bot_response)
-    
+        
     return jsonify(response)
 
 
@@ -260,6 +350,19 @@ def get_legal_moves_json():
     if current_game is None:
         return []
     return [list(move) for move in current_game.get_legal_moves()]
+
+
+def resolve_bot_move():
+    """Decide which bot to call based on current turn."""
+    turn = current_game.turn
+    player_type = white_player_type if turn == WHITE else black_player_type
+    
+    if player_type == 'alphazero':
+        return make_alphazero_move()
+    elif player_type == 'baseline':
+        return make_baseline_move_logic()
+    else:
+        return {'error': 'It is human turn'}
 
 
 @app.route('/api/move', methods=['POST'])
@@ -295,7 +398,7 @@ def player_move():
         return jsonify(response)
     
     # Bot responds
-    bot_response = make_bot_move()
+    bot_response = resolve_bot_move()
     return jsonify(bot_response)
 
 
@@ -310,7 +413,7 @@ def bot_move_endpoint():
     if current_game.is_terminal():
         return jsonify({'error': 'Game already finished'}), 400
     
-    bot_response = make_bot_move()
+    bot_response = resolve_bot_move()
     return jsonify(bot_response)
 
 
@@ -331,7 +434,7 @@ def get_state():
     return jsonify(response)
 
 
-def make_bot_move():
+def make_alphazero_move():
     """Make a move using MCTS and return the new state."""
     global current_game, mcts
     
