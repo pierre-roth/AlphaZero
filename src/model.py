@@ -99,7 +99,7 @@ class AlphaZeroNet(nn.Module):
     Args:
         num_blocks: Number of residual blocks (default: 6)
         num_filters: Number of filters/channels (default: 128)
-        num_input_planes: Input channels (default: 4)
+        num_input_planes: Input channels (default: 3)
         num_actions: Output actions (default: 192)
         se_ratio: Squeeze-Excitation ratio (default: 8)
     """
@@ -211,13 +211,16 @@ def create_network(config: str = "default") -> AlphaZeroNet:
     config = config.lower()
     
     if config == "default":
-        return AlphaZeroNet(num_blocks=6, num_filters=128)
-    elif config == "small":
-        return AlphaZeroNet(num_blocks=4, num_filters=64)
-    elif config == "large":
-        return AlphaZeroNet(num_blocks=10, num_filters=256)
+        # Default now maps to Config.DEFAULT_MODEL_SIZE (large)
+        size = Config.DEFAULT_MODEL_SIZE
     else:
-        raise ValueError(f"Unknown config: {config}. Use 'default', 'small', or 'large'")
+        size = config
+
+    if size not in Config.MODEL_SIZES:
+        raise ValueError(f"Unknown config: {config}. Use one of {list(Config.MODEL_SIZES.keys())}")
+        
+    cfg = Config.MODEL_SIZES[size]
+    return AlphaZeroNet(num_blocks=cfg['blocks'], num_filters=cfg['filters'])
 
 
 if __name__ == "__main__":

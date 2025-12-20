@@ -33,23 +33,39 @@ pip install torch numpy flask flask-cors tqdm
 ```
 
 ### 2. Training
+Start the self-play training loop:
 ```bash
-python main.py train
+python main.py train [--size small|medium|large]
 ```
-- Runs parallel self-play games
-- Trains the neural network on collected examples
-- Saves checkpoints to `checkpoints/`
+- **Resumable**: Automatically continues from the latest checkpoint.
+- **Parallel**: Runs 100+ games simultaneously for efficiency.
+- **Persistence**: Saves training data to `checkpoints/training_data.npz`.
 
-### 3. Play in Browser
+### 3. Arena (Evaluation)
+Run the automated evaluation system:
+```bash
+python main.py arena
+```
+- Continuously scans for new checkpoints.
+- Estimates ELO ratings by playing matches against the best previous models.
+- Tracks a leaderboard in `checkpoints/arena_state.json`.
+
+### 4. Web Interface
+Play against the AI in your browser:
 ```bash
 python main.py web
 ```
-Open http://localhost:5051 and play against the bot!
+- Open **http://localhost:5051**
+- **Features**:
+  - **Human vs Bot**: Test your skills against AlphaZero or the Baseline engine.
+  - **Human vs Human**: Play locally with move validation and history.
+  - **Bot vs Bot**: Watch models play against each other.
+
 
 ## Network Architecture
 
 - **Input:** 3 planes (8×8): my pieces, opponent pieces, ones
-- **Tower:** 6 SE-ResNet blocks with 128 filters
+- **Tower:** Configurable (Small: 5x64, Medium: 10x128, Large: 20x128)
 - **Policy head:** 192 outputs (64 squares × 3 directions)
 - **Value head:** WL (Win/Loss) probabilities
 
@@ -61,7 +77,17 @@ python -m pytest tests/ -v
 
 ## Configuration
 
-Edit `src/config.py` to tune:
-- Network size (`RESNET_BLOCKS`, `RESNET_FILTERS`)
-- MCTS parameters (`MCTS_SIMULATIONS`, `C_PUCT`)
-- Training settings (`BATCH_SIZE`, `LEARNING_RATE`, `PARALLEL_GAMES`)
+All settings are centralized in `src/config.py`.
+
+### Model Sizes
+Defined in `Config.MODEL_SIZES`. You can choose different architectures:
+- **Small**: 5 blocks, 64 filters (Fast, good for debugging)
+- **Medium**: 10 blocks, 128 filters (Balanced)
+- **Large**: 20 blocks, 128 filters (Strongest, used for production training)
+
+### Hyperparameters
+Key parameters to tune in `src/config.py`:
+- **MCTS**: `MCTS_SIMULATIONS` (default 400), `C_PUCT` (Exploration)
+- **Training**: `BATCH_SIZE`, `LEARNING_RATE`, `SELFPLAY_BATCHES`
+- **System**: `PARALLEL_GAMES` (Adjust based on CPU cores)
+

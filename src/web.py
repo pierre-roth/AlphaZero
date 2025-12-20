@@ -219,8 +219,8 @@ def make_baseline_move_logic() -> dict:
     bb_state = game_to_baseline(current_game)
     
     # Search
-    # Use 1500ms typically
-    best_move, score = baseline_search.search(bb_state, time_ms=1500)
+    # Use 2000ms typically
+    best_move, score = baseline_search.search(bb_state, time_ms=2000)
     
     if best_move is None:
         # Should not happen unless game over
@@ -395,11 +395,29 @@ def player_move():
         response['game_over'] = True
         response['result'] = get_result()
         response['legal_moves'] = []
+        response['moved_player'] = 'white' if current_game.turn == BLACK else 'black' # The player who JUST moved
         return jsonify(response)
     
-    # Bot responds
-    bot_response = resolve_bot_move()
-    return jsonify(bot_response)
+    # Identify who just moved (the turn has already flipped in game.step)
+    # If turn is now BLACK, then WHITE just moved.
+    just_moved = 'white' if current_game.turn == BLACK else 'black'
+    
+    response = board_to_json(current_game)
+    response['moved_player'] = just_moved
+    
+    # Check if next player is a bot
+    next_turn = current_game.turn
+    next_player_type = white_player_type if next_turn == WHITE else black_player_type
+    
+    if next_player_type != 'human':
+        # Bot responds
+        bot_response = resolve_bot_move()
+        response.update(bot_response)
+    else:
+        # Next is human, just return state
+        response['legal_moves'] = get_legal_moves_json()
+        
+    return jsonify(response)
 
 
 @app.route('/api/bot_move', methods=['POST'])

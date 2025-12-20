@@ -301,12 +301,22 @@ async function makeMove(move) {
         }
 
         // Update state
-        addMove(move, data.turn === 'black' ? 'white' : 'black'); // Previous turn moved
+        if (data.moved_player) {
+            addMove(move, data.moved_player);
+        } else {
+            // Fallback if API didn't send moved_player (legacy)
+            addMove(move, data.turn === 'black' ? 'white' : 'black');
+        }
+
         currentBoard = data.board;
         legalMoves = data.legal_moves || [];
 
         if (data.bot_move) {
-            addMove(data.bot_move, data.turn); // "Bot" label is generic, maybe improve?
+            // For bot move, we can infer the player from the *resulting* turn?
+            // No, if bot moved, it WAS its turn.
+            // If current turn is now White, then Black (bot) just moved.
+            const botPlayer = data.turn === 'white' ? 'black' : 'white';
+            addMove(data.bot_move, botPlayer);
             updateEval(data.evaluation);
         }
 

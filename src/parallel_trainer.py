@@ -365,7 +365,7 @@ class ParallelTrainer:
     
     def _get_data_file_path(self) -> str:
         """Get path to the training data file."""
-        return os.path.join(self.checkpoint_dir, "training_data.npz")
+        return os.path.join(self.checkpoint_dir, Config.DATA_FILE)
     
     def append_training_data(self, new_examples: List[Tuple[np.ndarray, np.ndarray, np.ndarray]]):
         """
