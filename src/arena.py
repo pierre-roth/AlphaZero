@@ -70,10 +70,26 @@ class ArenaState:
                 self.matches = data.get('matches', [])
                 self.best_models = data.get('best_models', {})
                 self.cross_size_matches = data.get('cross_size_matches', [])
-                self.match_counts = data.get('match_counts', {})
+                # Rebuild match_counts from historical data for consistency
+                self._rebuild_match_counts()
             print(f"Loaded arena state: {len(self.ratings)} models rated, best per size: {self.best_models}")
         else:
             print("No existing arena state found, starting fresh")
+    
+    def _rebuild_match_counts(self):
+        """Rebuild match_counts from matches and cross_size_matches for consistency."""
+        self.match_counts = {}
+        # Count from regular matches
+        for match in self.matches:
+            pair_key = self._get_pair_key(match['model_a'], match['model_b'])
+            total_games = match['wins_a'] + match['wins_b']
+            self.match_counts[pair_key] = self.match_counts.get(pair_key, 0) + total_games
+        # Count from cross-size matches
+        for match in self.cross_size_matches:
+            pair_key = self._get_pair_key(match['model_a'], match['model_b'])
+            total_games = match['wins_a'] + match['wins_b']
+            self.match_counts[pair_key] = self.match_counts.get(pair_key, 0) + total_games
+
     
     def save(self):
         """Save state to disk."""
@@ -149,18 +165,11 @@ class ArenaState:
             'timestamp': datetime.now().isoformat()
         })
         
-        # Update best model per size
-        size = self._get_model_size(model_a)
-        if size:
-            # Find best model for this size
-            best_rating = 0
-            best_for_size = None
-            for name, rating in self.ratings.items():
-                if self._get_model_size(name) == size and rating > best_rating:
-                    best_rating = rating
-                    best_for_size = name
-            if best_for_size:
-                self.best_models[size] = best_for_size
+        # Update best model per size for both participants
+        for model in [model_a, model_b]:
+            size = self._get_model_size(model)
+            if size:
+                self._update_best_for_size(size)
         
         # Update match counts for matchmaking heuristics
         pair_key = self._get_pair_key(model_a, model_b)
@@ -168,8 +177,37 @@ class ArenaState:
         
         self.save()
     
+    def _update_best_for_size(self, size: str):
+        """Find and update the best model for a given size, syncing to disk."""
+        best_rating = 0
+        best_for_size = None
+        for name, rating in self.ratings.items():
+            if self._get_model_size(name) == size and rating > best_rating:
+                best_rating = rating
+                best_for_size = name
+        
+        if best_for_size and self.best_models.get(size) != best_for_size:
+            self.best_models[size] = best_for_size
+            self._sync_best_model(size)
+    
+    def _sync_best_model(self, size: str):
+        """Sync model_best_{size}.pt on disk with the current best model."""
+        import shutil
+        best_model_name = self.best_models.get(size)
+        if best_model_name:
+            src_path = os.path.join(self.checkpoint_dir, best_model_name)
+            dst_path = os.path.join(self.checkpoint_dir, f"model_best_{size}.pt")
+            if os.path.exists(src_path):
+                shutil.copy(src_path, dst_path)
+                print(f"Synced model_best_{size}.pt -> {best_model_name}")
+
+    
     def get_unevaluated_models(self) -> List[str]:
-        """Find iteration checkpoints that haven't been evaluated yet."""
+        """Find iteration checkpoints that haven't been evaluated yet.
+        
+        Excludes models that are currently set as best_models (baselines),
+        since they have no opponent to play against yet.
+        """
         pattern = os.path.join(self.checkpoint_dir, "iteration_*_*.pt")
         all_models = [os.path.basename(f) for f in glob.glob(pattern)]
         
@@ -178,7 +216,11 @@ class ArenaState:
             evaluated.add(match['model_a'])
             evaluated.add(match['model_b'])
         
-        return [m for m in all_models if m not in evaluated]
+        # Exclude current best_models (baselines with no opponent)
+        baseline_models = set(self.best_models.values())
+        
+        return [m for m in all_models if m not in evaluated and m not in baseline_models]
+
     
     def get_best_for_size(self, size: str) -> Optional[str]:
         """Get the best model for a specific size."""
@@ -200,9 +242,19 @@ class ArenaState:
         return False
     
     def record_cross_size_match(self, model_a: str, model_b: str, wins_a: int, wins_b: int):
-        """Record a cross-size match result."""
+        """Record a cross-size match result and update ratings."""
         size_a = self._get_model_size(model_a)
         size_b = self._get_model_size(model_b)
+        
+        total = wins_a + wins_b
+        if total > 0:
+            # Update ELO ratings
+            score_a = wins_a / total
+            self.update_ratings(model_a, model_b, score_a)
+            
+            # Update match counts for matchmaking heuristics
+            pair_key = self._get_pair_key(model_a, model_b)
+            self.match_counts[pair_key] = self.match_counts.get(pair_key, 0) + total
         
         self.cross_size_matches.append({
             'model_a': model_a,
@@ -214,6 +266,7 @@ class ArenaState:
             'timestamp': datetime.now().isoformat()
         })
         self.save()
+
 
 
 class Arena:
