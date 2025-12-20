@@ -6,7 +6,7 @@ import pytest
 import torch
 import numpy as np
 
-from src.model import AlphaZeroNet, SEBlock, SEResidualBlock, create_network
+from src.model import AlphaZeroNet, SEBlock, SEResidualBlock
 
 
 class TestSEBlock:
@@ -129,51 +129,7 @@ class TestAlphaZeroNet:
         assert wl.shape == (2, 2)
 
 
-class TestAlphaZeroNetConfigs:
-    """Tests for different network configurations."""
-    
-    def test_default_config(self):
-        """Default config should work."""
-        model = AlphaZeroNet()
-        x = torch.randn(1, 3, 8, 8)
-        policy, wl = model(x)
-        
-        assert policy.shape == (1, 192)
-        assert wl.shape == (1, 2)
-    
-    def test_create_network_default(self):
-        """create_network helper should work."""
-        model = create_network("default")
-        
-        assert model.num_blocks == 6
-        assert model.num_filters == 128
-    
-    def test_create_network_small(self):
-        """Small config should work."""
-        model = create_network("small")
-        
-        assert model.num_blocks == 4
-        assert model.num_filters == 64
-    
-    def test_create_network_large(self):
-        """Large config should work."""
-        model = create_network("large")
-        
-        assert model.num_blocks == 10
-        assert model.num_filters == 256
-    
-    def test_create_network_invalid(self):
-        """Invalid config should raise error."""
-        with pytest.raises(ValueError):
-            create_network("invalid-config")
-    
-    def test_parameter_count_reasonable(self):
-        """Default model should have reasonable parameter count."""
-        model = AlphaZeroNet(num_blocks=6, num_filters=128)
-        num_params = sum(p.numel() for p in model.parameters())
-        
-        # Should be in millions range but not huge
-        assert 100_000 < num_params < 10_000_000
+
 
 
 class TestAlphaZeroNetGradients:

@@ -20,18 +20,12 @@ class Config:
     # ==========================================================================
     # Model Architecture
     # ==========================================================================
-    # Default model size (can be overridden by MODEL_SIZES)
-    RESNET_BLOCKS = 6           # Number of residual blocks
+    # ==========================================================================
+    # Model Architecture
+    # ==========================================================================
+    RESNET_BLOCKS = 20          # Number of residual blocks (Standard Large)
     RESNET_FILTERS = 128        # Number of filters per conv layer
     SE_RATIO = 8                # Squeeze-Excitation reduction ratio
-    
-    # Available model sizes (blocks, filters)
-    MODEL_SIZES = {
-        'small': {'blocks': 5, 'filters': 64},
-        'medium': {'blocks': 10, 'filters': 128},
-        'large': {'blocks': 20, 'filters': 128},  # Deep > Wide for reasoning
-    }
-    DEFAULT_MODEL_SIZE = 'large'
 
     # ==========================================================================
     # MCTS Parameters

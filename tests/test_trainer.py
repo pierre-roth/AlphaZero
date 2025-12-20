@@ -23,7 +23,7 @@ class TestParallelTrainer:
 
     @pytest.fixture
     def trainer(self, model, device):
-        return ParallelTrainer(model, device=device, num_parallel_games=1, num_simulations=1, model_size="small")
+        return ParallelTrainer(model, device=device, num_parallel_games=1, num_simulations=1)
 
     def test_lr_scheduler_t_max_override(self, trainer):
         """
@@ -39,7 +39,7 @@ class TestParallelTrainer:
         state_dict['T_max'] = 1000
         
         # 3. Save this dummy checkpoint
-        checkpoint_filename = "iteration_1_small.pt"
+        checkpoint_filename = "iteration_1.pt"
         checkpoint_path = os.path.join(Config.CHECKPOINT_DIR, checkpoint_filename)
         os.makedirs(Config.CHECKPOINT_DIR, exist_ok=True)
         
@@ -47,8 +47,7 @@ class TestParallelTrainer:
             'state_dict': trainer.model.state_dict(),
             'optimizer': trainer.optimizer.state_dict(),
             'scheduler': state_dict,
-            'iteration': 1,
-            'model_size': "small"
+            'iteration': 1
         }, checkpoint_path)
         
         try:

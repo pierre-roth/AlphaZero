@@ -106,70 +106,60 @@ def load_model(model_path: str) -> tuple[bool, str]:
         return False, error_msg
 
 
-def init_bot_for_size(size: str = Config.DEFAULT_MODEL_SIZE):
+def init_bot():
     """
-    Initialize with the best available model for a given size.
+    Initialize with the best available model.
     
     Priority:
-    1. model_best_{size}.pt (highest ELO from arena for this size)
-    2. Latest iteration_N_{size}.pt checkpoint
+    1. model_best.pt (highest ELO from arena)
+    2. Latest iteration_N.pt checkpoint
     3. Random weights (fallback)
-    
-    Args:
-        size: Model size ('small', 'medium', 'large')
     """
     import glob
     import re
     
     checkpoint_dir = Config.CHECKPOINT_DIR
     
-    # Get architecture for this size
-    if size not in Config.MODEL_SIZES:
-        print(f"Unknown size {size}, using {Config.DEFAULT_MODEL_SIZE}")
-        size = Config.DEFAULT_MODEL_SIZE
+    # Default architecture
+    num_blocks = Config.RESNET_BLOCKS
+    num_filters = Config.RESNET_FILTERS
     
-    size_config = Config.MODEL_SIZES[size]
-    num_blocks = size_config['blocks']
-    num_filters = size_config['filters']
-    
-    # Try size-specific best model first
-    best_path = os.path.join(checkpoint_dir, f"model_best_{size}.pt")
+    # Try best model first
+    best_path = os.path.join(checkpoint_dir, Config.BEST_MODEL)
     if os.path.exists(best_path):
-        print(f"Loading best {size} model (highest ELO)...")
+        print(f"Loading best model ({Config.BEST_MODEL})...")
         load_model(best_path)
         return
     
-    # Fall back to latest iteration checkpoint for this size
-    pattern = os.path.join(checkpoint_dir, f"iteration_*_{size}.pt")
+    # Fall back to latest iteration checkpoint
+    pattern = os.path.join(checkpoint_dir, "iteration_*.pt")
     files = glob.glob(pattern)
     
     if files:
         iterations = []
         for f in files:
-            match = re.search(rf'iteration_(\d+)_{size}\.pt$', f)
+            match = re.search(r'iteration_(\d+)\.pt$', f)
             if match:
                 iterations.append((int(match.group(1)), f))
         
         if iterations:
             iterations.sort(reverse=True)
             latest_path = iterations[0][1]
-            print(f"No best {size} model found, loading latest iteration checkpoint...")
+            print(f"No best model found, loading latest iteration checkpoint...")
             load_model(latest_path)
             return
     
-    # Fall back to random weights with correct architecture
-    print(f"No {size} checkpoints found, using random weights...")
+    # Fall back to random weights
+    print(f"No checkpoints found, using random weights...")
     global model, mcts, current_model_name, device
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     model = AlphaZeroNet(num_blocks=num_blocks, num_filters=num_filters).to(device)
-    current_model_name = f"random_{size}"
+    current_model_name = "random"
     model.eval()
     mcts = MCTS(model, num_simulations=Config.MCTS_SIMULATIONS_INFERENCE, device=str(device))
 
 
-def init_bot():
-    """Initialize with default model size."""
-    init_bot_for_size(Config.DEFAULT_MODEL_SIZE)
+
 
 
 # =============================================================================
@@ -279,8 +269,6 @@ def get_config():
     return jsonify({
         'board_size': Config.BOARD_SIZE,
         'num_actions': Config.NUM_ACTIONS,
-        'model_sizes': list(Config.MODEL_SIZES.keys()),
-        'default_size': Config.DEFAULT_MODEL_SIZE
     })
 
 
@@ -317,7 +305,6 @@ def new_game():
     data = request.get_json() or {}
     white_type = data.get('white_type', 'human') # 'human', 'alphazero', 'baseline'
     black_type = data.get('black_type', 'alphazero')
-    model_size = data.get('size', Config.DEFAULT_MODEL_SIZE)
     
     # Set global player types
     white_player_type = white_type
@@ -325,7 +312,13 @@ def new_game():
 
     # Load AlphaZero model if needed
     if 'alphazero' in [white_player_type, black_player_type]:
-        init_bot_for_size(model_size)
+        # Only re-init if really necessary? For now just rely on current loaded model
+        # or we could force a reload if we want to ensure "best" is used?
+        # But 'init_bot' is expensive. Let's assume the user selects model via proper endpoint or we rely on what's loaded.
+        # But the old code called init_bot_for_size(model_size).
+        # We can just ensure a model is loaded.
+        if model is None:
+            init_bot()
     
     current_game = BreakthroughGame()
     
@@ -334,7 +327,6 @@ def new_game():
     response['black_type'] = black_player_type
     response['game_over'] = False
     response['model'] = current_model_name
-    response['model_size'] = model_size
     response['legal_moves'] = get_legal_moves_json()
     
     # If White is a bot, make move immediately

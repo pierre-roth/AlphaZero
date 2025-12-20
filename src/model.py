@@ -199,28 +199,7 @@ class AlphaZeroNet(nn.Module):
 LC0Network = AlphaZeroNet
 
 
-def create_network(config: str = "default") -> AlphaZeroNet:
-    """
-    Create a network from a configuration string.
-    
-    Supported configs:
-    - "default": 128 filters, 6 blocks (~1M params)
-    - "small": 64 filters, 4 blocks (~300K params)
-    - "large": 256 filters, 10 blocks (~10M params)
-    """
-    config = config.lower()
-    
-    if config == "default":
-        # Default now maps to Config.DEFAULT_MODEL_SIZE (large)
-        size = Config.DEFAULT_MODEL_SIZE
-    else:
-        size = config
 
-    if size not in Config.MODEL_SIZES:
-        raise ValueError(f"Unknown config: {config}. Use one of {list(Config.MODEL_SIZES.keys())}")
-        
-    cfg = Config.MODEL_SIZES[size]
-    return AlphaZeroNet(num_blocks=cfg['blocks'], num_filters=cfg['filters'])
 
 
 if __name__ == "__main__":

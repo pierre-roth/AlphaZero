@@ -2,7 +2,7 @@
 AlphaZero Breakthrough Training and Inference.
 
 Usage:
-    python main.py train [--size small|medium|large]  - Start training
+    python main.py train                               - Start training
     python main.py web                                 - Start web server
     python main.py arena                               - Run model evaluation
 """
@@ -18,35 +18,23 @@ torch._dynamo.disable()
 
 from src.model import AlphaZeroNet
 from src.parallel_trainer import ParallelTrainer
-
-
 from src.config import Config
 
 
-def get_model_config(size: str) -> tuple:
-    """Get blocks and filters for a model size."""
-    if size not in Config.MODEL_SIZES:
-        raise ValueError(f"Unknown model size: {size}. Use: {list(Config.MODEL_SIZES.keys())}")
-    cfg = Config.MODEL_SIZES[size]
-    return cfg['blocks'], cfg['filters']
-
-
-def train(model_size: str = Config.DEFAULT_MODEL_SIZE):
+def train():
     """
     Train with parallel self-play.
     
     The training loop is restartable - it automatically resumes from the
     latest iteration checkpoint and reloads training data from disk.
-    
-    Args:
-        model_size: Model size to train ('small', 'medium', 'large')
     """
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
     print(f"Using device: {device}")
     
-    # Get model configuration
-    num_blocks, num_filters = get_model_config(model_size)
-    print(f"Model size: {model_size} ({num_blocks} blocks, {num_filters} filters)")
+    # Get standard model configuration
+    num_blocks = Config.RESNET_BLOCKS
+    num_filters = Config.RESNET_FILTERS
+    print(f"Model: {num_blocks} blocks, {num_filters} filters")
     
     # Create network
     model = AlphaZeroNet(num_blocks=num_blocks, num_filters=num_filters).to(device)
@@ -59,11 +47,10 @@ def train(model_size: str = Config.DEFAULT_MODEL_SIZE):
         model,
         device=str(device),
         num_parallel_games=Config.PARALLEL_GAMES,
-        num_simulations=Config.MCTS_SIMULATIONS,
-        model_size=model_size  # Pass size for checkpoint naming
+        num_simulations=Config.MCTS_SIMULATIONS
     )
     
-    # Find and load latest iteration checkpoint for this model size
+    # Find and load latest iteration checkpoint
     start_iteration = trainer.get_latest_iteration()
     
     if start_iteration > 0:
@@ -79,7 +66,7 @@ def train(model_size: str = Config.DEFAULT_MODEL_SIZE):
     while True:
         iteration += 1
         print(f"\n{'='*50}")
-        print(f"Iteration {iteration} ({model_size})")
+        print(f"Iteration {iteration}")
         print(f"{'='*50}")
         
         # Collect multiple batches of self-play data before training
@@ -103,41 +90,32 @@ def train(model_size: str = Config.DEFAULT_MODEL_SIZE):
         trainer.save_iteration_checkpoint(iteration)
 
 
-def arena(cross_size: bool = False):
+def arena():
     """Run the arena for model evaluation."""
-    if cross_size:
-        from src.arena import run_cross_size_arena
-        run_cross_size_arena()
-    else:
-        from src.arena import run_arena
-        run_arena()
+    from src.arena import run_arena
+    run_arena()
 
 
 def main():
     parser = argparse.ArgumentParser(description='AlphaZero Breakthrough')
     parser.add_argument('command', choices=['train', 'web', 'arena'], 
                         help='Command to run')
-    parser.add_argument('--size', choices=['small', 'medium', 'large'],
-                        default=Config.DEFAULT_MODEL_SIZE,
-                        help='Model size for training (default: large)')
-    parser.add_argument('--cross-size', action='store_true',
-                        help='Arena mode: pit best models of different sizes against each other')
     
     args = parser.parse_args()
     
     if args.command == 'train':
-        train(model_size=args.size)
+        train()
     elif args.command == 'web':
         from src.web import app
         print("Starting web server at http://localhost:5051")
         app.run(host="0.0.0.0", port=5051, debug=False)
     elif args.command == 'arena':
-        arena(cross_size=args.cross_size)
+        arena()
 
 
 if __name__ == "__main__":
     if len(sys.argv) == 1:
-        print("Usage: python main.py [train|web|arena] [--size small|medium|large] [--cross-size]")
+        print("Usage: python main.py [train|web|arena]")
     else:
         main()
 

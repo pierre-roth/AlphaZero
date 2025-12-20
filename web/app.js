@@ -59,7 +59,6 @@ async function startGame() {
     // Get configuration
     const whiteType = document.getElementById('whitePlayer').value;
     const blackType = document.getElementById('blackPlayer').value;
-    const modelSize = document.getElementById('modelSize').value || 'medium';
 
     // Determine if we need auto-play loop (if NO humans involved)
     // Actually, even if Human vs Bot, we don't need a loop, the bot moves on response.
@@ -97,8 +96,7 @@ async function startGame() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 white_type: whiteType,
-                black_type: blackType,
-                size: modelSize
+                black_type: blackType
             })
         });
 
