@@ -58,7 +58,7 @@ class Config:
     GRAD_CLIP_NORM = 1.0        # Gradient clipping to prevent exploding gradients
     PARALLEL_GAMES = 128        # Games to run in parallel during self-play
     SELFPLAY_BATCHES = 8        # Number of self-play rounds before each training cycle
-    BUFFER_SIZE = 300000        # Replay buffer size (saved with checkpoint)
+    BUFFER_SIZE = 225000        # Replay buffer size (saved with checkpoint)
     TRAINING_EPOCHS = 1         # Epochs per training iteration (reduced to prevent overfitting)
 
     # ==========================================================================
