@@ -199,13 +199,7 @@ class Search:
                 if alpha >= beta:
                     return e_val
 
-        # 2. Null Move Pruning
-        # "depth >= 4", non-PV (beta-alpha == 1 or just check bounds?), mobility>=6, pawns>=6
-        # Assuming non-PV if beta - alpha <= 1? No, just use simple logic.
-        # Let's skip precise Null Move for "Maximum Simplicity" variant as suggested in spec?
-        # "If you want maximum simplicity: omit null-move" -> I'll omit for risk reduction in baseline.
-        
-        # 3. Futility Pruning (Quiet moves near frontier)
+        # 2. Futility Pruning (Quiet moves near frontier)
         # Depth 1: static+90 <= alpha -> skip quiet
         # Depth 2: static+180 <= alpha -> skip quiet
         static_eval = evaluate(state)
@@ -214,10 +208,37 @@ class Search:
         if state.turn == BLACK:
             static_eval = -static_eval
             
-        # 4. Move Generation & Ordering
+        # 3. Move Generation & Ordering
         moves = state.get_legal_moves()
         if not moves:
             return SCORE_LOSS + ply # Stalemate/No moves is loss
+
+        has_promotion = False
+        for _, to_sq in moves:
+            if state.turn == WHITE and to_sq >= 56:
+                has_promotion = True
+                break
+            if state.turn == BLACK and to_sq <= 7:
+                has_promotion = True
+                break
+
+        # 4. Null Move Pruning (conservative)
+        # depth >= 4, mobility >= 6, total pieces >= 6, no immediate promotion
+        if depth >= 4 and not has_promotion:
+            total_pieces = bin(state.white | state.black).count('1')
+            if total_pieces >= 6 and len(moves) >= 6:
+                null_state = state.clone()
+                null_state.turn = -state.turn
+                null_state.zobrist_key ^= state._ZOBRIST_SIDE
+                reduction = 2
+                null_depth = depth - 1 - reduction
+                if null_depth < 0:
+                    null_depth = 0
+                null_score = -self._negamax(null_state, null_depth, -beta, -beta + 1, ply+1)
+                if self.stopped:
+                    return 0
+                if null_score >= beta:
+                    return beta
             
         # Score moves for ordering
         scored_moves = []
@@ -230,10 +251,13 @@ class Search:
             # Immediate Win (Reaches back rank)
             # Check dest rank
             to_sq = mv[1]
+            is_promotion = False
             if state.turn == WHITE and to_sq >= 56: # Rank 8
                 score += 5_000_000
+                is_promotion = True
             elif state.turn == BLACK and to_sq <= 7: # Rank 1
                 score += 5_000_000
+                is_promotion = True
                 
             # Capture?
             # Need to check content. `state.black & (1<<to_sq)`
@@ -241,16 +265,15 @@ class Search:
             dest_mask = 1 << to_sq
             if state.turn == WHITE:
                 if state.black & dest_mask:
-                     is_capture = True
+                    is_capture = True
             else:
                 if state.white & dest_mask:
                     is_capture = True
-                    
+
             if is_capture:
-                 # score = 2000 + ...
-                 score += 2000
-                 # Add specific capture heuristics if needed
-            
+                # score = 2000 + ...
+                score += 2000
+                # Add specific capture heuristics if needed
             else:
                 # Quiet
                 # Killers
@@ -262,13 +285,12 @@ class Search:
                 h_score = self.history.get(mv, 0)
                 score += h_score
                 
-            scored_moves.append((score, mv))
+            scored_moves.append((score, mv, is_capture, is_promotion))
             
         scored_moves.sort(key=lambda x: x[0], reverse=True)
         
         # 5. PVS Loop
         best_val = -float('inf')
-        move_count = 0
         local_best_move = None
         
         # LMR Logic
@@ -276,31 +298,25 @@ class Search:
         
         current_flag = FLAG_UPPERBOUND
         
-        for i, (_, move) in enumerate(scored_moves):
-            move_count += 1
-            
+        for i, (_, move, is_capture, is_promotion) in enumerate(scored_moves):
             # Make move
             new_state = state.clone()
             new_state.make_move(*move)
-            
-            # LMR
-            # Do reductions for quiet moves?
-            # Check is_capture again or look at score?
-            # Let's re-identify capture roughly
-            # (In a real engine, we'd pass this flag down)
-            
-            needs_full_search = True
             
             # PVS: Principal Variation Search
             if i == 0:
                 val = -self._negamax(new_state, depth-1, -beta, -alpha, ply+1)
             else:
                 # Late Move Reduction
-                # Condition: Depth>=3, Index>=6, Quiet (Non-capture)
-                # Let's skip LMR for now to ensure correctness first, add if simple.
+                reduction = 0
+                if depth >= 3 and i >= 6 and not is_capture and not is_promotion:
+                    reduction = 1
                 
                 # Zero Window Search
-                val = -self._negamax(new_state, depth-1, -alpha-1, -alpha, ply+1)
+                search_depth = depth - 1 - reduction
+                if search_depth < 0:
+                    search_depth = 0
+                val = -self._negamax(new_state, search_depth, -alpha-1, -alpha, ply+1)
                 
                 if alpha < val < beta:
                     # Fail high on null window, re-search full window
@@ -363,19 +379,32 @@ class Search:
             # Let's stick to standard Q-Search for safety in baseline.
             pass
 
-        # Generate Captures ONLY
+        # Generate Captures and Promotion Moves
         moves = state.get_legal_moves()
-        captures = []
+        candidates = []
         for mv in moves:
             to_sq = mv[1]
+            is_promotion = False
+            if state.turn == WHITE and to_sq >= 56:
+                is_promotion = True
+            elif state.turn == BLACK and to_sq <= 7:
+                is_promotion = True
             if state.turn == WHITE:
-                 if state.black & (1<<to_sq): captures.append(mv)
+                is_capture = bool(state.black & (1<<to_sq))
             else:
-                 if state.white & (1<<to_sq): captures.append(mv)
+                is_capture = bool(state.white & (1<<to_sq))
+
+            if is_capture or is_promotion:
+                score = 0
+                if is_promotion:
+                    score += 5000
+                if is_capture:
+                    score += 1000
+                candidates.append((score, mv))
                  
-        # Order Captures (MVV-LVA? Or just simple)
-        # Just search them
-        for move in captures:
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        
+        for _, move in candidates:
             new_state = state.clone()
             new_state.make_move(*move)
             

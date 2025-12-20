@@ -116,6 +116,7 @@ class ParallelTrainer:
         device: str = "cpu",
         num_parallel_games: int = Config.PARALLEL_GAMES,
         num_simulations: int = Config.MCTS_SIMULATIONS,
+        checkpoint_dir: str = Config.CHECKPOINT_DIR,
     ):
         self.model = model
         self.device = device
@@ -130,7 +131,7 @@ class ParallelTrainer:
         self.mcts = MCTS(model, num_simulations=num_simulations, device=device)
         self.examples: List[Tuple[np.ndarray, np.ndarray, np.ndarray]] = []
         self.max_examples = Config.BUFFER_SIZE  # Cap replay buffer at this size
-        self.checkpoint_dir = Config.CHECKPOINT_DIR
+        self.checkpoint_dir = checkpoint_dir
         os.makedirs(self.checkpoint_dir, exist_ok=True)
     
     def execute_parallel_episodes(self, num_games: Optional[int] = None) -> List[Tuple]:

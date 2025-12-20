@@ -38,7 +38,7 @@ GAMES_PER_MATCH = 20  # Games to play per model comparison
 # Matchmaking Constants
 EXPLORATION_RATE = 0.15  # Probability to pick from top-K instead of top-1
 TOP_K = 5  # Size of candidate pool for exploration
-BIAS_LAMBDA = 0.05  # Strength of higher-ranked bias
+BIAS_LAMBDA = 0.15  # Strength of higher-ranked bias
 RANDOM_OPENING_MOVES = 6  # Number of random moves for paired openings
 
 
@@ -182,28 +182,21 @@ class ArenaState:
             dst_path = os.path.join(self.checkpoint_dir, Config.BEST_MODEL)
             if os.path.exists(src_path):
                 shutil.copy(src_path, dst_path)
-                print(f"Synced {Config.BEST_MODEL} -> {best_model_name}")
-
-    
-    def get_unevaluated_models(self) -> List[str]:
-        """Find iteration checkpoints that haven't been evaluated yet.
-        
-        Excludes models that are currently set as best_models (baselines),
-        since they have no opponent to play against yet.
-        """
+    def discover_models(self):
+        """Scans for new iteration checkpoints and adds them to ratings."""
         pattern = os.path.join(self.checkpoint_dir, "iteration_*.pt")
         all_models = [os.path.basename(f) for f in glob.glob(pattern)]
         
-        evaluated = set()
-        for match in self.matches:
-            evaluated.add(match['model_a'])
-            evaluated.add(match['model_b'])
+        new_found = False
+        for model in all_models:
+            if model not in self.ratings:
+                self.ratings[model] = INITIAL_ELO
+                print(f"Discovered new model: {model} (Initial ELO: {INITIAL_ELO})")
+                new_found = True
         
-        # Exclude current best_model (baseline with no opponent)
-        if self.best_model:
-            evaluated.add(self.best_model)
-        
-        return [m for m in all_models if m not in evaluated]
+        if new_found:
+            self.save()
+    
 
     
     def get_leaderboard(self) -> List[Tuple[str, float]]:
@@ -431,95 +424,11 @@ class Arena:
         
         return selected
     
-    def evaluate_model(self, model_name: str):
-        """
-        Evaluate a new model against the current best of the same size.
-        
-        Uses hybrid evaluation strategy:
-        - 50% games from standard start position
-        - 50% games from random paired openings (reduces opening bias)
-        """
-        model_path = os.path.join(self.state.checkpoint_dir, model_name)
-        
-        # Evaluate against current best
-        best = self.state.best_model
-        
-        if best:
-            opponent_name = best
-            opponent_path = os.path.join(self.state.checkpoint_dir, opponent_name)
-        else:
-            # No best model yet, use the new model as baseline
-            self.state.ratings[model_name] = INITIAL_ELO
-            self.state.best_model = model_name
-            self.state.save()
-            print(f"First model {model_name} set as baseline (ELO: {INITIAL_ELO})")
-            
-            # Copy as model_best.pt
-            best_path = os.path.join(self.state.checkpoint_dir, Config.BEST_MODEL)
-            import shutil
-            shutil.copy(model_path, best_path)
-            print(f"Saved as {Config.BEST_MODEL}")
-            return
-        
-        print(f"\nEvaluating {model_name} by {opponent_name}...")
-        print("Using hybrid evaluation: 50% standard, 50% random paired openings")
-        
-        # Load models
-        _, mcts_new = self.load_model(model_path)
-        _, mcts_old = self.load_model(opponent_path)
-        
-        wins_new = 0
-        wins_old = 0
-        
-        # Part 1: Standard start (10 games = 5 per side)
-        print("Part 1: Standard start games...")
-        for _ in tqdm(range(5), desc="New as White", leave=False):
-            result = self.play_game(mcts_new, mcts_old)
-            if result == 1:
-                wins_new += 1
-            else:
-                wins_old += 1
-        
-        for _ in tqdm(range(5), desc="New as Black", leave=False):
-            result = self.play_game(mcts_old, mcts_new)
-            if result == 1:
-                wins_old += 1
-            else:
-                wins_new += 1
-        
-        # Part 2: Random paired openings (10 games = 5 openings × 2 games each)
-        print("Part 2: Random paired opening games...")
-        for i in tqdm(range(5), desc="Paired openings", leave=False):
-            opening = self._get_random_opening()
-            w_new, w_old = self.play_paired_match(mcts_new, mcts_old, opening)
-            wins_new += w_new
-            wins_old += w_old
-        
-        print(f"Result: {model_name} {wins_new}-{wins_old} {opponent_name}")
-        
-        # Record match
-        self.state.record_match(model_name, opponent_name, wins_new, wins_old)
-        
-        # Check if new model is now best
-        if self.state.best_model == model_name:
-            best_path = os.path.join(self.state.checkpoint_dir, Config.BEST_MODEL)
-            import shutil
-            shutil.copy(model_path, best_path)
-            print(f"New best model! ELO: {self.state.ratings[model_name]:.0f}")
-        
-        # Print leaderboard
-        print(f"\nLeaderboard:")
-        for rank, (name, rating) in enumerate(self.state.get_leaderboard()[:10], 1):
-            marker = " *" if name == self.state.best_model else ""
-            print(f"  {rank}. {name}: {rating:.0f}{marker}")
-
-
 def run_arena():
     """
     Main arena loop.
     
-    Continuously scans for new models and evaluates them.
-    When no new models are found, performs automated matchmaking
+    Continuously scans for new models and performs automated matchmaking
     between existing models to refine ELO ratings.
     """
     device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
@@ -527,59 +436,64 @@ def run_arena():
     
     arena = Arena(device=str(device))
     
-    print("Arena started. Scanning for new models...")
-    print("(Run this alongside training to evaluate models as they're generated)")
-    print("Automated matchmaking will run when no new models are available.")
+    print("Arena started. Continuously matchmaking...")
+    print("Higher-rank bias and ELO variance will prioritize new models.")
     print("Press Ctrl+C to stop.\n")
     
     while True:
-        # Find unevaluated models
-        new_models = arena.state.get_unevaluated_models()
+        # Scan for new models
+        arena.state.discover_models()
         
-        if new_models:
-            # Sort by iteration number
-            new_models.sort(key=lambda x: int(x.replace("iteration_", "").replace(".pt", "")))
-            
-            for model_name in new_models:
-                print(f"\n{'='*50}")
-                arena.evaluate_model(model_name)
-                print(f"{'='*50}")
-        else:
-            # No new models - run automated matchmaking
-            matchup = arena.select_matchup()
-            
-            if matchup is None:
-                # Less than 2 models, wait for more
-                print("Waiting for at least 2 models to start matchmaking...")
-                time.sleep(30)
-                continue
-            
-            model_a, model_b, score = matchup
-            print(f"\n{'='*50}")
-            print(f"MATCHMAKING: {model_a} vs {model_b}")
-            print(f"Selection score: {score:.5f}")
-            print(f"{'='*50}")
-            
-            # Generate random opening for paired match
-            opening = arena._get_random_opening()
-            
-            # Load models
-            model_a_path = os.path.join(arena.state.checkpoint_dir, model_a)
-            model_b_path = os.path.join(arena.state.checkpoint_dir, model_b)
-            _, mcts_a = arena.load_model(model_a_path)
-            _, mcts_b = arena.load_model(model_b_path)
-            
-            # Play paired match (2 games from same opening)
-            wins_a, wins_b = arena.play_paired_match(mcts_a, mcts_b, opening)
-            
-            print(f"Result: {model_a} {wins_a}-{wins_b} {model_b}")
-            
-            # Record match
-            arena.state.record_match(model_a, model_b, wins_a, wins_b)
-            
-            # Print updated ratings
-            print(f"Updated ratings: {model_a}={arena.state.get_rating(model_a):.0f}, "
-                  f"{model_b}={arena.state.get_rating(model_b):.0f}")
+        # Select best matchup from all models
+        matchup = arena.select_matchup()
+        
+        if matchup is None:
+            # Less than 2 models, wait for more
+            print("Waiting for at least 2 models to start matchmaking...")
+            time.sleep(30)
+            continue
+        
+        model_a, model_b, score = matchup
+        print(f"\n{'='*50}")
+        print(f"MATCHMAKING: {model_a} vs {model_b}")
+        print(f"Selection score: {score:.5f}")
+        print(f"{'='*50}")
+        
+        # Generate random opening for paired match
+        opening = arena._get_random_opening()
+        
+        # Load models
+        model_a_path = os.path.join(arena.state.checkpoint_dir, model_a)
+        model_b_path = os.path.join(arena.state.checkpoint_dir, model_b)
+        _, mcts_a = arena.load_model(model_a_path)
+        _, mcts_b = arena.load_model(model_b_path)
+        
+        # Play 4 games in total
+        # Part 1: Standard start (2 games)
+        wins_a_std, wins_b_std = arena.play_paired_match(mcts_a, mcts_b, BreakthroughGame())
+        
+        # Part 2: Random opening (2 games)
+        wins_a_rnd, wins_b_rnd = arena.play_paired_match(mcts_a, mcts_b, opening)
+        
+        wins_a = wins_a_std + wins_a_rnd
+        wins_b = wins_b_std + wins_b_rnd
+        
+        print(f"Result: {model_a} {wins_a}-{wins_b} {model_b} "
+              f"({wins_a_std}-{wins_b_std} std, {wins_a_rnd}-{wins_b_rnd} rnd)")
+        
+        # Record match
+        arena.state.record_match(model_a, model_b, wins_a, wins_b)
+        
+        # Print updated ratings
+        print(f"Updated ratings: {model_a}={arena.state.get_rating(model_a):.0f}, "
+              f"{model_b}={arena.state.get_rating(model_b):.0f}")
+        
+        # Print leaderboard
+        print(f"\nLeaderboard:")
+        for rank, (name, rating) in enumerate(arena.state.get_leaderboard()[:10], 1):
+            marker = " *" if name == arena.state.best_model else ""
+            print(f"  {rank}. {name}: {rating:.0f}{marker}")
+
 
 
 if __name__ == "__main__":
