@@ -37,7 +37,7 @@ class Config:
     # MCTS Parameters
     # ==========================================================================
     MCTS_SIMULATIONS = 400              # Simulations per search
-    MCTS_SIMULATIONS_INFERENCE = 200    # Simulations for web inference 
+    MCTS_SIMULATIONS_INFERENCE = 300    # Simulations for web inference 
     C_PUCT = 1.5                        # Exploration constant
     # First Play Urgency: reduction from parent Q-value for unvisited nodes.
     # FPU = parent_Q - FPU_REDUCTION. Prevents "despair exploration" in losing positions.

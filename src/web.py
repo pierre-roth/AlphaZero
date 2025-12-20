@@ -219,8 +219,8 @@ def make_baseline_move_logic() -> dict:
     bb_state = game_to_baseline(current_game)
     
     # Search
-    # Use 1000ms typically
-    best_move, score = baseline_search.search(bb_state, time_ms=1000)
+    # Use 1500ms typically
+    best_move, score = baseline_search.search(bb_state, time_ms=1500)
     
     if best_move is None:
         # Should not happen unless game over
