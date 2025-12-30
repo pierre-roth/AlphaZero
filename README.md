@@ -79,12 +79,6 @@ python -m pytest tests/ -v
 
 All settings are centralized in `src/config.py`.
 
-### Architecture
-The network uses a fixed architecture defined by `RESNET_BLOCKS` (20) and `RESNET_FILTERS` (128).
 
-### Hyperparameters
-Key parameters to tune in `src/config.py`:
-- **MCTS**: `MCTS_SIMULATIONS` (default 400), `C_PUCT` (Exploration)
-- **Training**: `BATCH_SIZE`, `LEARNING_RATE`, `SELFPLAY_BATCHES`
-- **System**: `PARALLEL_GAMES` (Adjust based on CPU cores)
+Important note: Currently FPU is 0 for all unvisited nodes. This was used during early training. Going forward, ParentQ - const should be considered instead. 
 
