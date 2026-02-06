@@ -1,0 +1,6 @@
+torch
+numpy
+flask
+flask-cors
+tqdm
+pytest
